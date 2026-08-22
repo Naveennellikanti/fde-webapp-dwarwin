@@ -159,10 +159,17 @@ GROQ_API_KEY=gsk_...
 
 ## Deploying
 
+Step-by-step instructions, including the free-tier gotchas, are in
+**[DEPLOY.md](DEPLOY.md)**. [`render.yaml`](render.yaml) is a Render Blueprint, so the
+backend deploys from the dashboard without hand-entering settings.
+
 | Piece | Where | Notes |
 |---|---|---|
-| Frontend | Vercel | Set `NEXT_PUBLIC_API_URL` to the deployed backend URL |
-| Backend | Render / Fly / any Docker host | Set `GROQ_API_KEY`, `LLM_BACKEND=groq`, and `CORS_ORIGINS` to your Vercel origin |
+| Frontend | Vercel | Root Directory **must** be `frontend`; set `NEXT_PUBLIC_API_URL` to the backend URL (inlined at build time) |
+| Backend | Render / Fly / any Docker host | Blueprint covers it; afterwards set `CORS_ORIGINS` to your Vercel origin |
+
+The backend needs a **persistent process** — serverless will not do, because each session
+holds a live in-process DuckDB connection with the uploaded tables.
 
 Hosted model runtimes cannot run Ollama, which is exactly why the provider is an
 abstraction — the same image runs local or hosted on a config flag.

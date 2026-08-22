@@ -1,0 +1,45 @@
+# Render Blueprint — deploys the FastAPI backend.
+#
+# Render (rather than a serverless platform) because this backend is deliberately
+# stateful: each session owns a live in-process DuckDB connection holding the uploaded
+# tables. On serverless, consecutive requests can land on different instances, so an
+# upload would vanish before the next question. A single long-lived process is the
+# design's requirement, not an accident.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Render reads this file.
+services:
+  - type: web
+    name: data-qa-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    # One instance, one worker. Scaling out requires moving session state to Redis and
+    # DuckDB to shared storage first — see the README's scaling notes.
+    numInstances: 1
+    envVars:
+      # No GROQ_API_KEY here on purpose. The app supports a per-session
+      # bring-your-own key, so a public instance can run without a shared credential:
+      # each visitor supplies their own in the settings panel, and it is verified,
+      # kept in memory for that session only, and never persisted.
+      #
+      # To run with a server-wide key instead, add GROQ_API_KEY in the Render
+      # dashboard (Environment -> Add Secret) — never commit it here.
+      - key: LLM_BACKEND
+        value: groq
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      # Set this to the deployed frontend origin after the first Vercel deploy.
+      # Comma-separated; no trailing slash. The browser is blocked without it.
+      - key: CORS_ORIGINS
+        sync: false
+      # Free instances sleep when idle and lose all in-memory sessions on wake, so a
+      # shorter TTL keeps the advertised behaviour honest rather than promising two
+      # hours the platform will not deliver.
+      - key: SESSION_TTL_MINUTES
+        value: "30"
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      - key: PYTHONUNBUFFERED
+        value: "1"
