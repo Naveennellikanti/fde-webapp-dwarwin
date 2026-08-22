@@ -35,11 +35,39 @@
 
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
+    /* Contextual alternates and kerning are what make Inter look "designed" rather
+       than merely loaded. */
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'calt' 1, 'kern' 1;
+    text-rendering: optimizeLegibility;
   }
 
   * {
     @apply border-slate-200;
   }
+}
+
+@layer utilities {
+  /* Proportional digits vary in width, so 1,111 renders narrower than 8,888 and a
+     column of figures develops a ragged edge you can see but not name. Tabular
+     figures fix every digit to the same advance width, so decimal points line up and
+     magnitudes become visually comparable. Applied to every surface that shows a
+     number: tables, axis ticks, KPI values, row counts. */
+  .nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1, 'kern' 1;
+  }
+}
+
+/* Chart axis labels are SVG <text>, so they need the numeric feature applied through
+   CSS: `font-variant-numeric` is a CSS property, not an SVG presentation attribute, so
+   passing it as a React prop on the tick is silently dropped. Without this the axis
+   ticks are set with proportional digits while the results table beneath uses tabular
+   ones — the same number in two widths, a few pixels apart. */
+.recharts-cartesian-axis-tick text,
+.recharts-label,
+.recharts-tooltip-wrapper {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
 @layer components {

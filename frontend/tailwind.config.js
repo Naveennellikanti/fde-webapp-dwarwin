@@ -9,7 +9,17 @@ module.exports = {
     extend: {
       fontFamily: {
         sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+      },
+      // A small, deliberate type scale. Headings carry negative tracking because at
+      // semibold weight the default spacing reads loose; small text gets positive
+      // tracking so 11px labels stay legible.
+      fontSize: {
+        'label': ['0.6875rem', { lineHeight: '1rem', letterSpacing: '0.04em' }],   // 11px
+        'meta': ['0.75rem', { lineHeight: '1.125rem', letterSpacing: '0.01em' }],  // 12px
+        'body': ['0.875rem', { lineHeight: '1.5rem' }],                            // 14px
+        'title': ['0.9375rem', { lineHeight: '1.375rem', letterSpacing: '-0.01em' }],
+        'display': ['1.375rem', { lineHeight: '1.75rem', letterSpacing: '-0.021em' }],
       },
       colors: {
         accent: {

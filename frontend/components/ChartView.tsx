@@ -38,7 +38,14 @@ const SERIES_COLORS = [
 
 const GRID = '#e2e8f0';
 const AXIS_INK = '#475569';
-const TICK = { fill: AXIS_INK, fontSize: 11 } as const;
+/* SVG <text> does not inherit the page font stack, so the tick names it explicitly.
+   Tabular figures are applied in globals.css instead: `font-variant-numeric` is a CSS
+   property rather than an SVG presentation attribute, so React drops it here. */
+const TICK = {
+  fill: AXIS_INK,
+  fontSize: 11,
+  fontFamily: 'var(--font-sans)',
+} as const;
 const CHART_HEIGHT = 300;
 
 /** A 9th series is never a generated hue — it folds into "Other". */
