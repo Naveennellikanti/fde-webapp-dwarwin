@@ -5,6 +5,7 @@ Run locally:  uvicorn app.main:app --reload --port 8000  (single worker — see 
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -202,6 +203,32 @@ async def upload(
 
     # Profile once, here, rather than per question.
     session.quality = profile_session(session.engine)
+    return _schema_response(session_id)
+
+
+@app.delete("/session/{session_id}/table/{table}", response_model=UploadResponse)
+async def drop_table(session_id: str, table: str) -> UploadResponse:
+    """Remove one loaded table.
+
+    Excel sheets are separate tables, so a workbook is removed a sheet at a time —
+    which matches what the sidebar lists, and lets you keep one sheet and drop another.
+    """
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    if not session.engine.drop_table(table):
+        raise HTTPException(status_code=404, detail=f"No table named {table!r} in this session.")
+
+    # The cached profile and join map describe a schema that no longer exists.
+    session.quality = profile_session(session.engine)
+
+    # Conversation history keeps prior SQL so follow-ups can be resolved against it.
+    # Any turn referencing the dropped table would now feed the model a query it cannot
+    # run, so those turns are forgotten rather than left to cause a retry loop.
+    session.history = [
+        t for t in session.history
+        if not (t.sql and re.search(rf'\b"?{re.escape(table)}"?\b', t.sql, re.I))
+    ]
     return _schema_response(session_id)
 
 

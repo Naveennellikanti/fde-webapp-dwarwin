@@ -26,6 +26,7 @@ from app.intelligence.llm.groq_provider import GroqProvider
 
 FAKE_KEY = "gsk_test_key_that_must_never_be_echoed_0123456789"
 CSV = b"region,revenue\nWest,100.5\nEast,200.25\n"
+REGIONS_CSV = b"region,head\nWest,Ann\nEast,Bo\n"
 
 
 def _accept_any_key(monkey: bool) -> None:
@@ -143,6 +144,64 @@ def test_session_repr_does_not_expose_the_key() -> None:
         assert FAKE_KEY not in repr(session), "repr(Session) leaked the key"
         assert FAKE_KEY not in str(session.redacted())
         print("PASS  repr(Session) and redacted() both omit the key")
+
+
+def test_drop_table_removes_data_and_stale_context() -> None:
+    """Removing a table must also clear what described it.
+
+    A cached quality profile and a conversation history full of SQL against a table that
+    no longer exists would both feed the model a schema it cannot query — the profile
+    silently, the history by producing SQL that fails on every retry.
+    """
+    _accept_any_key(True)
+    with TestClient(main.app) as client:
+        sid = client.post("/session").json()["session_id"]
+        client.post(
+            "/upload",
+            data={"session_id": sid},
+            files=[
+                ("files", ("sales.csv", io.BytesIO(CSV), "text/csv")),
+                ("files", ("regions.csv", io.BytesIO(REGIONS_CSV), "text/csv")),
+            ],
+        )
+        session = main.store.get(sid)
+        assert session is not None
+        assert set(session.engine.tables) == {"sales", "regions"}
+        assert len(session.quality) == 2
+
+        # A prior turn that references the table about to be removed, plus one that does not.
+        session.history = [
+            main.Turn(question="total", sql='SELECT SUM(revenue) FROM "sales"'),
+            main.Turn(question="heads", sql='SELECT head FROM "regions"'),
+        ]
+
+        r = client.delete(f"/session/{sid}/table/sales")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert [t["name"] for t in body["tables"]] == ["regions"]
+
+        assert "sales" not in session.engine.tables
+        assert [q["table"] for q in body["quality"]] == ["regions"], body["quality"]
+        assert [t.question for t in session.history] == ["heads"], session.history
+
+        # The name is released, so re-uploading the same file is not renamed to sales_2.
+        client.post(
+            "/upload", data={"session_id": sid},
+            files=[("files", ("sales.csv", io.BytesIO(CSV), "text/csv"))],
+        )
+        assert "sales" in session.engine.tables, list(session.engine.tables)
+        print("PASS  drop table: data, profile and stale history all cleared; name reusable")
+
+
+def test_drop_unknown_table_is_404() -> None:
+    _accept_any_key(True)
+    with TestClient(main.app) as client:
+        sid = new_session(client)
+        r = client.delete(f"/session/{sid}/table/nope")
+        assert r.status_code == 404, r.text
+        r2 = client.delete("/session/deadbeef/table/sales")
+        assert r2.status_code == 404, r2.text
+        print("PASS  drop table: unknown table and unknown session both 404")
 
 
 if __name__ == "__main__":

@@ -259,9 +259,9 @@ pandas from the same fixtures, so the suite cannot drift into blessing a wrong a
 **16/16 against `openai/gpt-oss-120b`.** `--mock` swaps in scripted SQL to exercise the
 pipeline without a model, which is what CI runs on every push (`--min-accuracy 1.0`).
 
-35 tests in three suites. `test_pipeline.py` (15) covers the parts that must be right
-regardless of which model is plugged in; `test_session_key.py` (6) drives the real app over
-HTTP to assert the bring-your-own-key security properties; `test_validation.py` (14) covers
+37 tests in three suites. `test_pipeline.py` (15) covers the parts that must be right
+regardless of which model is plugged in; `test_session_key.py` (8) drives the real app over
+HTTP to assert the bring-your-own-key security properties and table removal; `test_validation.py` (14) covers
 data quality, result validation, confidence and ambiguity. Between them:
 guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
 retry exhaustion, cross-file joins, chart selection, bounded multi-turn context,
@@ -289,6 +289,7 @@ all eight acceptance-criteria questions, the same question answered identically 
 | `POST /ask` | `{session_id, question}` → answer, SQL, rows, chart spec, attempts |
 | `GET /config` | Active model backend + privacy settings (never returns secrets) |
 | `PUT /settings` | Change non-secret runtime settings (privacy mode, model backend) |
+| `DELETE /session/{id}/table/{name}` | Remove one loaded table; returns the refreshed schema (joins and quality recomputed) |
 | `PUT /session/{id}/key` | Attach a bring-your-own API key to **one session** (verified first; reports `has_key`, never the key) |
 | `DELETE /session/{id}/key` | Forget that session's key and fall back to the server environment |
 | `DELETE /session/{id}` | Destroy session and its data |

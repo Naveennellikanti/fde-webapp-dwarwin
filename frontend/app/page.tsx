@@ -30,6 +30,7 @@ export default function Page() {
   const [quality, setQuality] = useState<TableQualityInfo[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [removingTable, setRemovingTable] = useState<string | null>(null);
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [asking, setAsking] = useState(false);
@@ -91,6 +92,29 @@ export default function Page() {
     [sessionId]
   );
 
+  // ---- Remove one table ---------------------------------------------------
+  const handleRemoveTable = useCallback(
+    async (table: string) => {
+      if (!sessionId || removingTable) return;
+      setRemovingTable(table);
+      setUploadError(null);
+      try {
+        // The server recomputes joins and the quality profile, since both describe a
+        // schema that just changed — so the whole schema response replaces local state
+        // rather than filtering the table out client-side.
+        const res = await api.dropTable(sessionId, table);
+        setTables(res.tables);
+        setJoins(res.joins);
+        setQuality(res.quality ?? []);
+      } catch (e) {
+        setUploadError(errMessage(e));
+      } finally {
+        setRemovingTable(null);
+      }
+    },
+    [sessionId, removingTable]
+  );
+
   // ---- Ask ----------------------------------------------------------------
   const handleAsk = useCallback(
     async (question: string) => {
@@ -142,6 +166,8 @@ export default function Page() {
         uploadDisabled={!sessionId}
         uploadError={uploadError}
         onOpenSettings={() => setSettingsOpen(true)}
+        onRemoveTable={handleRemoveTable}
+        removingTable={removingTable}
       />
 
       {settingsOpen && config && (

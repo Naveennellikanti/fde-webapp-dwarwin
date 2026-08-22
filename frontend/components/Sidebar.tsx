@@ -19,6 +19,9 @@ interface Props {
   uploadDisabled: boolean;
   uploadError: string | null;
   onOpenSettings: () => void;
+  onRemoveTable: (table: string) => void;
+  /** Name of the table currently being removed, if any. */
+  removingTable: string | null;
 }
 
 export default function Sidebar({
@@ -31,6 +34,8 @@ export default function Sidebar({
   uploadDisabled,
   uploadError,
   onOpenSettings,
+  onRemoveTable,
+  removingTable,
 }: Props) {
   return (
     <aside className="flex h-screen w-[320px] shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -103,7 +108,13 @@ export default function Sidebar({
             </h2>
             <div className="space-y-2">
               {tables.map((t, i) => (
-                <TableCard key={t.name} table={t} defaultOpen={tables.length === 1 && i === 0} />
+                <TableCard
+                  key={t.name}
+                  table={t}
+                  defaultOpen={tables.length === 1 && i === 0}
+                  onRemove={onRemoveTable}
+                  removing={removingTable === t.name}
+                />
               ))}
             </div>
           </section>

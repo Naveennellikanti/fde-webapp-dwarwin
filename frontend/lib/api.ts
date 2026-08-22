@@ -139,6 +139,27 @@ export async function clearSessionKey(sessionId: string): Promise<SessionKeyStat
   return (await res.json()) as SessionKeyState;
 }
 
+/**
+ * Remove one loaded table. Returns the refreshed schema (joins and quality are
+ * recomputed server-side, since both describe a schema that just changed).
+ */
+export async function dropTable(
+  sessionId: string,
+  table: string
+): Promise<UploadResponse> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${API_URL}/session/${encodeURIComponent(sessionId)}/table/${encodeURIComponent(table)}`,
+      { method: 'DELETE' }
+    );
+  } catch (e) {
+    throw networkError(e);
+  }
+  if (!res.ok) throw await toApiError(res);
+  return (await res.json()) as UploadResponse;
+}
+
 export function getSchema(sessionId: string): Promise<SchemaResponse> {
   return getJson<SchemaResponse>(`/schema/${encodeURIComponent(sessionId)}`);
 }

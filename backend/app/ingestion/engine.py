@@ -101,6 +101,20 @@ class DataEngine:
         self.tables[table] = lt
         return lt
 
+    def drop_table(self, table: str) -> bool:
+        """Remove one loaded table and its data. False if it was not loaded.
+
+        The identifier is released as well, so re-uploading the same file gets its
+        original name back rather than `sales_2` — otherwise correcting a mistaken
+        upload would leave the schema permanently renamed.
+        """
+        if table not in self.tables:
+            return False
+        self.con.execute(f'DROP TABLE IF EXISTS "{table}"')
+        del self.tables[table]
+        self._taken.discard(table)
+        return True
+
     # ---- querying -------------------------------------------------------------
     def sample_rows(self, table: str, n: int) -> list[dict[str, Any]]:
         if n <= 0:
