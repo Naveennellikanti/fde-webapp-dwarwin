@@ -176,14 +176,20 @@ cd backend
 .venv/Scripts/python.exe tests/test_pipeline.py
 ```
 
-13 tests covering the parts that must be right regardless of which model is plugged in:
+15 tests covering the parts that must be right regardless of which model is plugged in:
 guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
 retry exhaustion, cross-file joins, chart selection, bounded multi-turn context,
-schema-only privacy mode, PII masking, and native-vs-LangChain parity. They use a scripted
-mock LLM, so they are deterministic and need no API key.
+schema-only privacy mode, PII masking, native-vs-LangChain parity, SQL extraction across
+model output styles (fenced, `<think>` blocks, prose preamble), and that provider errors
+always name a cause. They use a scripted mock LLM, so they are deterministic and need no
+API key — a reviewer can verify correctness before configuring any model.
 
 The happy-path test asserts the returned numbers **equal a pandas ground truth** — the
 point being that correctness comes from the engine, not the model.
+
+[VERIFICATION.md](VERIFICATION.md) records a full end-to-end run from a clean clone:
+all eight acceptance-criteria questions, the same question answered identically by a
+120B hosted model and a 3B local one, prompt-size measurements, and the safety checks.
 
 ---
 

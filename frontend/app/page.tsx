@@ -100,6 +100,20 @@ export default function Page() {
       try {
         const res = await api.ask(sessionId, question);
         setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, response: res } : t)));
+
+        // The badge is fetched once at startup, so it goes stale if the backend
+        // resolves differently later — `auto` falling back to hosted, or the setting
+        // being changed elsewhere. The answer reports which backend actually served
+        // it, so reconcile rather than let the sidebar claim one and the footer
+        // another.
+        const served = res.backend_used?.split(':')[0];
+        if (served && config && served !== config.backend) {
+          try {
+            setConfig(await api.getConfig());
+          } catch {
+            /* the answer is already shown; a stale badge is not worth surfacing */
+          }
+        }
       } catch (e) {
         const message = errMessage(e);
         setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, transportError: message } : t)));
@@ -107,7 +121,7 @@ export default function Page() {
         setAsking(false);
       }
     },
-    [sessionId, asking]
+    [sessionId, asking, config]
   );
 
   const hasData = tables.length > 0;
