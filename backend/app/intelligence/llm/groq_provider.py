@@ -8,7 +8,7 @@ import asyncio
 
 import httpx
 
-from app.llm.base import Completion, LLMProvider, LLMUnavailableError
+from app.intelligence.llm.base import Completion, LLMProvider, LLMUnavailableError
 
 # Hosted free tiers rate-limit aggressively. Retrying with backoff turns a hard failure
 # into a short pause, which matters when several questions are asked in quick succession.

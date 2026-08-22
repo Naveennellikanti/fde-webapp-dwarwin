@@ -1,9 +1,10 @@
 'use client';
 
 import { Cpu, Database, Link2, Settings, ShieldCheck } from 'lucide-react';
-import type { AppConfig, JoinHint, TableInfo } from '@/lib/types';
+import type { AppConfig, JoinHint, TableInfo, TableQualityInfo } from '@/lib/types';
 import UploadZone from './UploadZone';
 import TableCard from './TableCard';
+import QualityPanel from './QualityPanel';
 
 const PRIVACY_NOTE =
   'Your data stays in DuckDB — only the schema is sent to the model.';
@@ -12,6 +13,7 @@ interface Props {
   config: AppConfig | null;
   tables: TableInfo[];
   joins: JoinHint[];
+  quality: TableQualityInfo[];
   onFiles: (files: File[]) => void;
   uploading: boolean;
   uploadDisabled: boolean;
@@ -23,6 +25,7 @@ export default function Sidebar({
   config,
   tables,
   joins,
+  quality,
   onFiles,
   uploading,
   uploadDisabled,
@@ -137,6 +140,10 @@ export default function Sidebar({
           </section>
         )}
       </div>
+
+      {/* Quality findings sit above the privacy note: both are things to know about the
+          data before trusting an answer, and neither belongs in the scrolling list. */}
+      <QualityPanel quality={quality} />
 
       {/* Footer */}
       <div className="border-t border-slate-200 px-5 py-3">

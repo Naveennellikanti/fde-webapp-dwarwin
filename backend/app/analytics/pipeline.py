@@ -17,14 +17,19 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.config import Settings
-from app.core import schema as schema_mod
-from app.core.duckdb_engine import DataEngine
-from app.core.guardrails import GuardrailError, validate_select
-from app.llm.base import LLMProvider
+from app.ingestion import schema_profiler as schema_mod
+from app.intelligence.relationship_detector import detect_joins
+from app.ingestion.engine import DataEngine
+from app.analytics.query_validator import GuardrailError, validate_select
+from app.intelligence.llm.base import LLMProvider
 from app.schemas import AskResponse, ChartSpec, SqlAttempt
-from app.services.chart_selector import select_chart
-from app.services.prompts import CANNOT_ANSWER, SQL_SYSTEM, SUMMARY_SYSTEM
-from app.services.sql_generator import SqlGenerator, build_sql_generator
+from app.visualization.chart_builder import select_chart
+from app.intelligence.prompts import CANNOT_ANSWER, SQL_SYSTEM, SUMMARY_SYSTEM
+from app.intelligence.sql_generator import SqlGenerator, build_sql_generator
+from app.intelligence import ambiguity_detector
+from app.validation.confidence import score_answer
+from app.validation.data_quality import TableQuality, quality_notes_for_prompt
+from app.validation.result_validator import validate_result
 
 _FENCE = re.compile(r"```(?:sql)?\s*(.*?)```", re.S | re.I)
 # Reasoning models (Qwen3, DeepSeek-R1, …) prefix their answer with a thinking block.
@@ -91,6 +96,9 @@ async def answer_question(
     history: list[Turn],
     session_id: str,
     sql_generator: SqlGenerator | None = None,
+    # Profiled once at upload and cached on the session, so the checks below cost
+    # nothing per question. Optional so tests and the eval harness can omit it.
+    quality: list[TableQuality] | None = None,
 ) -> AskResponse:
     tokens_used = 0
     attempts: list[SqlAttempt] = []
@@ -100,11 +108,37 @@ async def answer_question(
 
     # ---- 1. Ground the model in the (possibly narrowed) schema ------------------
     tables, per_cols = schema_mod.select_relevant(engine, question, settings)
-    joins = schema_mod.detect_joins(engine)
+    joins = detect_joins(engine)
     schema_text = schema_mod.build_schema_context(engine, settings, tables, per_cols, joins)
+    schema_was_narrowed = per_cols is not None or len(tables) < len(engine.tables)
+
+    # ---- 1a. Ambiguity: answer under a stated assumption, or ask ---------------
+    # Lexical and pre-LLM, so it costs nothing. Only a genuinely unresolvable question
+    # stops here; anything with a preferred reading proceeds with that reading recorded,
+    # because an app that interrogates every vague word is worse than one that commits
+    # and shows its working.
+    ambiguities = ambiguity_detector.detect(question, engine)
+    assumptions = [a.message for a in ambiguities if a.action == "assume"]
+    must_ask = ambiguity_detector.blocking(ambiguities)
+    if must_ask is not None:
+        return AskResponse(
+            session_id=session_id, question=question, status="needs_clarification",
+            answer=must_ask.message, clarification_options=must_ask.options,
+            assumptions=assumptions, attempts=[], tokens_used=0,
+        )
 
     history_text = _history_block(history, settings.max_history_turns)
     base_prompt = f"SCHEMA:\n{schema_text}\n"
+
+    # Serious quality problems change what a correct answer looks like, so the model is
+    # told about them — an average over a 60%-empty column deserves a caveat in the
+    # prose, not silence.
+    quality_notes = quality_notes_for_prompt(quality or [])
+    if quality_notes:
+        base_prompt += f"\n{quality_notes}\n"
+    ambiguity_notes = ambiguity_detector.prompt_addendum(ambiguities)
+    if ambiguity_notes:
+        base_prompt += f"\n{ambiguity_notes}\n"
     if history_text:
         base_prompt += f"\n{history_text}\n"
     base_prompt += f"\nQUESTION: {question}\n\nSQL:"
@@ -159,11 +193,16 @@ async def answer_question(
         attempts.append(SqlAttempt(sql=sql, error=None))
 
         if not rows:
+            empty_report = validate_result(
+                question=question, sql=sql, columns=columns, rows=[], quality=quality,
+            )
             return AskResponse(
                 session_id=session_id, question=question, status="empty",
                 answer="That query ran fine but matched no rows. Try widening the filters.",
                 sql=sql, columns=columns, rows=[], chart=ChartSpec(type="none"),
                 attempts=attempts, backend_used=completion.backend, tokens_used=tokens_used,
+                caveats=[c.message for c in empty_report.caveats],
+                assumptions=assumptions,
             )
 
         chart = select_chart(columns, rows, question)
@@ -172,11 +211,26 @@ async def answer_question(
         )
         tokens_used += summary_tokens
 
+        # ---- 3a. Does the result look like it answers the question? ------------
+        report = validate_result(
+            question=question, sql=sql, columns=columns, rows=rows,
+            quality=quality, truncated=truncated,
+        )
+        confidence = score_answer(
+            attempts=len(attempts), validation=report,
+            schema_was_narrowed=schema_was_narrowed, row_count=len(rows),
+            used_join=" JOIN " in sql.upper(), status="ok",
+        )
+
         return AskResponse(
             session_id=session_id, question=question, status="ok", answer=summary,
             sql=sql, columns=columns, rows=rows, chart=chart, attempts=attempts,
             backend_used=backend or completion.backend, tokens_used=tokens_used,
             truncated=truncated,
+            caveats=[c.message for c in report.caveats],
+            assumptions=assumptions,
+            confidence=confidence.level, confidence_score=confidence.score,
+            confidence_reasons=confidence.reasons,
         )
 
     # ---- 4. Exhausted retries — surface the real error, don't fake an answer ----

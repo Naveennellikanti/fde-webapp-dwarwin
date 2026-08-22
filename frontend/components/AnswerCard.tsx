@@ -7,8 +7,16 @@ import ChartView from './ChartView';
 import DataTable from './DataTable';
 import SqlDisclosure from './SqlDisclosure';
 import AttemptsDisclosure from './AttemptsDisclosure';
+import { AnswerNotices, ClarificationCard, ConfidenceBadge } from './AnswerMeta';
 
-export default function AnswerCard({ res }: { res: AskResponse }) {
+export default function AnswerCard({
+  res,
+  onAsk,
+}: {
+  res: AskResponse;
+  /** Lets a clarification option re-ask the question in one click. */
+  onAsk?: (question: string) => void;
+}) {
   const { status } = res;
 
   if (status === 'cannot_answer') {
@@ -50,6 +58,10 @@ export default function AnswerCard({ res }: { res: AskResponse }) {
     );
   }
 
+  if (status === 'needs_clarification') {
+    return <ClarificationCard res={res} onChoose={(q) => onAsk?.(q)} />;
+  }
+
   // status === "ok"
   return (
     <article className="card animate-fade-up p-5">
@@ -61,6 +73,8 @@ export default function AnswerCard({ res }: { res: AskResponse }) {
           {res.answer}
         </p>
       </div>
+
+      <AnswerNotices res={res} />
 
       <ChartView chart={res.chart} rows={res.rows} />
 
@@ -137,8 +151,11 @@ function CardFooter({ res }: { res: AskResponse }) {
   bits.push(`${formatNumber(res.tokens_used)} tokens`);
 
   return (
-    <p className="mt-3 border-t border-slate-200/70 pt-2 font-mono text-[11px] text-slate-400">
-      {bits.join(' · ')}
-    </p>
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-200/70 pt-2">
+      {res.confidence && (
+        <ConfidenceBadge level={res.confidence} reasons={res.confidence_reasons} />
+      )}
+      <p className="font-mono text-[11px] text-slate-400">{bits.join(' · ')}</p>
+    </div>
   );
 }

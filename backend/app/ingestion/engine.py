@@ -15,7 +15,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from app.core.naming import unique_name
+from app.ingestion.naming import unique_name
 
 
 @dataclass

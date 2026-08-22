@@ -7,9 +7,9 @@ LLM_BACKEND=groq   -> force hosted
 from __future__ import annotations
 
 from app.config import Settings
-from app.llm.base import LLMProvider, LLMUnavailableError
-from app.llm.groq_provider import GroqProvider
-from app.llm.ollama_provider import OllamaProvider
+from app.intelligence.llm.base import LLMProvider, LLMUnavailableError
+from app.intelligence.llm.groq_provider import GroqProvider
+from app.intelligence.llm.ollama_provider import OllamaProvider
 
 
 def _ollama(s: Settings) -> OllamaProvider:

@@ -1,4 +1,4 @@
-"""Schema description, join auto-detection, and (conditional) schema-RAG.
+"""Schema profiling and the schema text handed to the model.
 
 Key cost property: only this compact schema text ever enters the LLM prompt — never
 the data rows. So prompt size is ~constant regardless of how big the files are.
@@ -13,80 +13,18 @@ import re
 from dataclasses import dataclass
 
 from app.config import Settings
-from app.core.duckdb_engine import DataEngine, LoadedTable
-from app.core.pii import mask_rows
+from app.ingestion.engine import DataEngine, LoadedTable
+from app.intelligence.relationship_detector import Join, join_key_columns
+from app.validation.pii import mask_rows
 
 _WORD = re.compile(r"[a-z0-9]+")
 
-# Columns whose names/dtypes suggest they are natural join keys.
-_NUMERIC_TYPES = {"BIGINT", "INTEGER", "HUGEINT", "SMALLINT", "TINYINT", "DOUBLE", "FLOAT", "DECIMAL"}
-
-
-@dataclass
-class Join:
-    left_table: str
-    left_column: str
-    right_table: str
-    right_column: str
-    confidence: float
-
 
 def _tokens(text: str) -> set[str]:
+    """Split an identifier or question into comparable lowercase tokens."""
     return set(_WORD.findall(text.lower()))
 
 
-# ---- join detection -------------------------------------------------------------
-def detect_joins(engine: DataEngine, max_hints: int = 12) -> list[Join]:
-    """Find candidate join keys across tables by column-name + dtype match,
-    boosted by value overlap on a sample. Purely heuristic, surfaced as *hints*."""
-    tables = list(engine.tables.values())
-    joins: list[Join] = []
-    seen: set[tuple[str, str, str, str]] = set()
-
-    def base_type(t: str) -> str:
-        return t.split("(")[0].upper()
-
-    for i in range(len(tables)):
-        for j in range(i + 1, len(tables)):
-            a, b = tables[i], tables[j]
-            a_cols = {c[0].lower(): c for c in a.columns}
-            b_cols = {c[0].lower(): c for c in b.columns}
-            for name, (acol, atype) in a_cols.items():
-                if name not in b_cols:
-                    continue
-                bcol, btype = b_cols[name]
-                if base_type(atype) != base_type(btype):
-                    continue
-                key = (a.name, acol, b.name, bcol)
-                if key in seen:
-                    continue
-                seen.add(key)
-                conf = 0.6
-                # Names like *_id / id / key are stronger signals.
-                if re.search(r"(^|_)(id|key|code|no|num)$", name) or name in {"id", "key"}:
-                    conf += 0.2
-                conf += _value_overlap(engine, a.name, acol, b.name, bcol) * 0.2
-                joins.append(Join(a.name, acol, b.name, bcol, round(min(conf, 0.99), 2)))
-
-    joins.sort(key=lambda j: j.confidence, reverse=True)
-    return joins[:max_hints]
-
-
-def _value_overlap(engine: DataEngine, ta: str, ca: str, tb: str, cb: str) -> float:
-    try:
-        q = (
-            f'WITH a AS (SELECT DISTINCT "{ca}" v FROM "{ta}" WHERE "{ca}" IS NOT NULL LIMIT 500), '
-            f'b AS (SELECT DISTINCT "{cb}" v FROM "{tb}" WHERE "{cb}" IS NOT NULL LIMIT 500) '
-            f"SELECT (SELECT COUNT(*) FROM a JOIN b USING (v))::DOUBLE "
-            f"/ NULLIF((SELECT COUNT(*) FROM a), 0)"
-        )
-        val = engine.con.execute(q).fetchone()[0]
-        return float(val or 0.0)
-    except Exception:  # noqa: BLE001
-        return 0.0
-
-
-# ---- schema-RAG: pick relevant tables/columns for large schemas -----------------
 def select_relevant(
     engine: DataEngine, question: str, settings: Settings
 ) -> tuple[list[LoadedTable], dict[str, list[str]] | None]:
@@ -114,7 +52,7 @@ def select_relevant(
     keep = [t for score, t in scored if score > 0][:5] or [scored[0][1]]
 
     # --- narrow columns within kept tables (only if very wide) ---
-    join_cols = _join_key_columns(engine)
+    join_cols = join_key_columns(engine)
     per_cols: dict[str, list[str]] = {}
     for t in keep:
         if len(t.columns) <= settings.schema_rag_column_threshold:
@@ -131,12 +69,6 @@ def select_relevant(
     return keep, per_cols
 
 
-def _join_key_columns(engine: DataEngine) -> set[tuple[str, str]]:
-    cols: set[tuple[str, str]] = set()
-    for j in detect_joins(engine):
-        cols.add((j.left_table, j.left_column))
-        cols.add((j.right_table, j.right_column))
-    return cols
 
 
 # ---- schema text for the prompt -------------------------------------------------

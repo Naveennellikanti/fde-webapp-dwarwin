@@ -18,8 +18,9 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.config import Settings
-from app.core.duckdb_engine import DataEngine
-from app.services.pipeline import Turn
+from app.ingestion.engine import DataEngine
+from app.analytics.pipeline import Turn
+from app.validation.data_quality import TableQuality
 
 
 @dataclass
@@ -30,6 +31,10 @@ class Session:
     last_seen: float
     history: list[Turn] = field(default_factory=list)
     tokens_used: int = 0
+    # Profiled once per upload and reused for every question, like the schema and the
+    # join map — the checks are aggregate scans, so re-running them per question would
+    # be pure waste.
+    quality: list[TableQuality] = field(default_factory=list)
 
     # Optional bring-your-own key, scoped to THIS session only.
     #

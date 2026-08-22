@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.llm.base import Completion, LLMProvider, LLMUnavailableError
+from app.intelligence.llm.base import Completion, LLMProvider, LLMUnavailableError
 
 
 def _reason(e: Exception) -> str:

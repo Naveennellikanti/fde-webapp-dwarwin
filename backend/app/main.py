@@ -10,13 +10,14 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.core import schema as schema_mod
-from app.core.runtime_settings import effective_settings, update_overrides
-from app.core.session_store import SessionStore
-from app.llm.base import LLMUnavailableError
-from app.llm.factory import get_provider
-from app.llm.groq_provider import GroqProvider
-from app.llm.ollama_provider import OllamaProvider
+from app.ingestion import schema_profiler as schema_mod
+from app.intelligence.relationship_detector import detect_joins
+from app.runtime.settings import effective_settings, update_overrides
+from app.runtime.session_store import SessionStore
+from app.intelligence.llm.base import LLMUnavailableError
+from app.intelligence.llm.factory import get_provider
+from app.intelligence.llm.groq_provider import GroqProvider
+from app.intelligence.llm.ollama_provider import OllamaProvider
 from app.schemas import (
     AskRequest,
     AskResponse,
@@ -24,12 +25,16 @@ from app.schemas import (
     JoinHint,
     SchemaResponse,
     SessionResponse,
+    ColumnQualityInfo,
+    QualityIssueInfo,
+    TableQualityInfo,
     SessionKeyUpdate,
     SettingsUpdate,
     TableInfo,
     UploadResponse,
 )
-from app.services.pipeline import Turn, answer_question
+from app.analytics.pipeline import Turn, answer_question
+from app.validation.data_quality import profile_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("dataqa")
@@ -195,6 +200,8 @@ async def upload(
         except Exception as e:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"Could not parse {name}: {e}") from e
 
+    # Profile once, here, rather than per question.
+    session.quality = profile_session(session.engine)
     return _schema_response(session_id)
 
 
@@ -240,6 +247,7 @@ async def ask(req: AskRequest) -> AskResponse:
             question=req.question.strip(),
             history=session.history,
             session_id=req.session_id,
+            quality=session.quality,
         )
     except LLMUnavailableError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -255,7 +263,7 @@ def _schema_response(session_id: str) -> UploadResponse:
     session = store.get(session_id)
     assert session is not None
     engine = session.engine
-    joins = schema_mod.detect_joins(engine)
+    joins = detect_joins(engine)
     tables = [
         TableInfo(
             name=t.name,
@@ -269,6 +277,27 @@ def _schema_response(session_id: str) -> UploadResponse:
     return UploadResponse(
         session_id=session_id,
         tables=tables,
+        quality=[
+            TableQualityInfo(
+                table=q.table,
+                row_count=q.row_count,
+                duplicate_rows=q.duplicate_rows,
+                columns=[
+                    ColumnQualityInfo(
+                        name=c.name, dtype=c.dtype, null_count=c.null_count,
+                        null_pct=c.null_pct, distinct_count=c.distinct_count,
+                    )
+                    for c in q.columns
+                ],
+                issues=[
+                    QualityIssueInfo(
+                        kind=i.kind, severity=i.severity, message=i.message, column=i.column
+                    )
+                    for i in q.issues
+                ],
+            )
+            for q in session.quality
+        ],
         joins=[
             JoinHint(
                 left_table=j.left_table, left_column=j.left_column,

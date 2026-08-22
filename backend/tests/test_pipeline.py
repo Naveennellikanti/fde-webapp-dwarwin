@@ -17,11 +17,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pandas as pd  # noqa: E402
 
 from app.config import Settings  # noqa: E402
-from app.core.duckdb_engine import DataEngine  # noqa: E402
-from app.core.guardrails import GuardrailError, validate_select  # noqa: E402
-from app.llm.base import Completion, LLMProvider  # noqa: E402
-from app.services.chart_selector import select_chart  # noqa: E402
-from app.services.pipeline import answer_question  # noqa: E402
+from app.ingestion.engine import DataEngine  # noqa: E402
+from app.analytics.query_validator import GuardrailError, validate_select  # noqa: E402
+from app.intelligence.llm.base import Completion, LLMProvider  # noqa: E402
+from app.visualization.chart_builder import select_chart  # noqa: E402
+from app.analytics.pipeline import answer_question  # noqa: E402
 
 
 class ScriptedProvider(LLMProvider):
@@ -194,7 +194,7 @@ def test_cross_file_join():
 
 def test_multi_turn_context_is_bounded():
     """History must be included but must NOT grow without bound."""
-    from app.services.pipeline import Turn, _history_block
+    from app.analytics.pipeline import Turn, _history_block
     history = [Turn(question=f"q{i}", sql=f"SELECT {i}") for i in range(20)]
     block = _history_block(history, 4)
     assert "q19" in block and "q15" not in block, block
@@ -217,7 +217,7 @@ def test_data_never_enters_prompt():
 
 
 def test_pii_masking():
-    from app.core.pii import mask_value
+    from app.validation.pii import mask_value
     assert mask_value("ann@example.com") == "«email»"
     assert mask_value("2024-07-01") == "2024-07-01"          # dates preserved
     assert mask_value("2024-07-01T10:30:00") == "2024-07-01T10:30:00"
@@ -235,8 +235,8 @@ def test_ollama_errors_always_state_a_cause():
     """
     import httpx
 
-    from app.llm.base import LLMUnavailableError
-    from app.llm.ollama_provider import OllamaProvider
+    from app.intelligence.llm.base import LLMUnavailableError
+    from app.intelligence.llm.ollama_provider import OllamaProvider
 
     provider = OllamaProvider("http://localhost:11434", "qwen2.5-coder:3b", 0.0, 300.0)
 
@@ -281,7 +281,7 @@ def test_sql_extraction_across_model_styles():
     Found live: Qwen3 on Groq emits <think> blocks, so the app must not be tuned to a
     single model's output format.
     """
-    from app.services.pipeline import _clean_sql
+    from app.analytics.pipeline import _clean_sql
     want = "SELECT a FROM t"
     cases = {
         "bare": want,
@@ -308,7 +308,7 @@ def test_langchain_generator_parity():
     guardrails, execution and the retry loop are shared, so correctness cannot diverge.
     """
     try:
-        from app.llm.langchain_generator import LangChainSqlGenerator
+        from app.intelligence.llm.langchain_generator import LangChainSqlGenerator
     except ImportError:
         print("SKIP  langchain parity (langchain-core not installed)")
         return
@@ -342,7 +342,7 @@ def test_langchain_generator_parity():
 def test_langchain_retry_loop_still_works():
     """Self-correction must work through the LangChain path too."""
     try:
-        from app.llm.langchain_generator import LangChainSqlGenerator
+        from app.intelligence.llm.langchain_generator import LangChainSqlGenerator
     except ImportError:
         print("SKIP  langchain retry (langchain-core not installed)")
         return

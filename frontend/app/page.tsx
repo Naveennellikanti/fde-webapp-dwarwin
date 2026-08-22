@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, RotateCw, User } from 'lucide-react';
 import * as api from '@/lib/api';
-import type { AppConfig, JoinHint, TableInfo, Turn } from '@/lib/types';
+import type { AppConfig, JoinHint, TableInfo, TableQualityInfo, Turn } from '@/lib/types';
 import Sidebar from '@/components/Sidebar';
 import AskBox from '@/components/AskBox';
 import AnswerCard from '@/components/AnswerCard';
@@ -27,6 +27,7 @@ export default function Page() {
 
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [joins, setJoins] = useState<JoinHint[]>([]);
+  const [quality, setQuality] = useState<TableQualityInfo[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -80,6 +81,7 @@ export default function Page() {
         const res = await api.uploadFiles(sessionId, files);
         setTables(res.tables);
         setJoins(res.joins);
+        setQuality(res.quality ?? []);
       } catch (e) {
         setUploadError(errMessage(e));
       } finally {
@@ -134,6 +136,7 @@ export default function Page() {
         config={config}
         tables={tables}
         joins={joins}
+        quality={quality}
         onFiles={handleFiles}
         uploading={uploading}
         uploadDisabled={!sessionId}
@@ -193,7 +196,7 @@ export default function Page() {
 
                   {/* Answer */}
                   {t.response ? (
-                    <AnswerCard res={t.response} />
+                    <AnswerCard res={t.response} onAsk={handleAsk} />
                   ) : t.transportError ? (
                     <div
                       role="alert"

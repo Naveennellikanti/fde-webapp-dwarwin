@@ -32,6 +32,7 @@ class SchemaResponse(BaseModel):
     session_id: str
     tables: list[TableInfo]
     joins: list[JoinHint] = Field(default_factory=list)
+    quality: list[TableQualityInfo] = Field(default_factory=list)
 
 
 # ---- Session / upload -----------------------------------------------------------
@@ -78,10 +79,33 @@ class SqlAttempt(BaseModel):
     error: Optional[str] = None
 
 
+class ColumnQualityInfo(BaseModel):
+    name: str
+    dtype: str
+    null_count: int
+    null_pct: float
+    distinct_count: int
+
+
+class QualityIssueInfo(BaseModel):
+    kind: str
+    severity: Literal["info", "warning"]
+    message: str
+    column: Optional[str] = None
+
+
+class TableQualityInfo(BaseModel):
+    table: str
+    row_count: int
+    duplicate_rows: int
+    columns: list[ColumnQualityInfo] = Field(default_factory=list)
+    issues: list[QualityIssueInfo] = Field(default_factory=list)
+
+
 class AskResponse(BaseModel):
     session_id: str
     question: str
-    status: Literal["ok", "cannot_answer", "empty", "error"]
+    status: Literal["ok", "cannot_answer", "empty", "error", "needs_clarification"]
     answer: str
     sql: Optional[str] = None
     columns: list[str] = Field(default_factory=list)
@@ -91,3 +115,15 @@ class AskResponse(BaseModel):
     backend_used: Optional[str] = None
     tokens_used: int = 0
     truncated: bool = False
+
+    # ---- validation & transparency -------------------------------------------
+    # Things the user should know about this answer without having to read the SQL.
+    caveats: list[str] = Field(default_factory=list)
+    # Interpretations the app chose on the user's behalf, stated rather than hidden.
+    assumptions: list[str] = Field(default_factory=list)
+    # Set when status == "needs_clarification": the readings worth choosing between.
+    clarification_options: list[str] = Field(default_factory=list)
+    # Derived from how the answer was produced, not from asking the model.
+    confidence: Optional[Literal["high", "medium", "low"]] = None
+    confidence_score: Optional[float] = None
+    confidence_reasons: list[str] = Field(default_factory=list)

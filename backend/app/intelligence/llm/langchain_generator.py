@@ -27,7 +27,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from app.llm.base import Completion, LLMProvider
+from app.intelligence.llm.base import Completion, LLMProvider
 
 
 class ProviderChatModel(BaseChatModel):

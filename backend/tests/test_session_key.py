@@ -22,7 +22,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 from fastapi.testclient import TestClient
 
 from app import main
-from app.llm.groq_provider import GroqProvider
+from app.intelligence.llm.groq_provider import GroqProvider
 
 FAKE_KEY = "gsk_test_key_that_must_never_be_echoed_0123456789"
 CSV = b"region,revenue\nWest,100.5\nEast,200.25\n"

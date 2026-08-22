@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from app.llm.base import Completion, LLMProvider
+from app.intelligence.llm.base import Completion, LLMProvider
 
 
 class SqlGenerator(Protocol):
@@ -46,7 +46,7 @@ class NativeSqlGenerator:
 def build_sql_generator(kind: str, provider: LLMProvider) -> SqlGenerator:
     if kind == "langchain":
         # Imported lazily so LangChain stays an optional dependency.
-        from app.llm.langchain_generator import LangChainSqlGenerator
+        from app.intelligence.llm.langchain_generator import LangChainSqlGenerator
 
         return LangChainSqlGenerator(provider)
     return NativeSqlGenerator(provider)

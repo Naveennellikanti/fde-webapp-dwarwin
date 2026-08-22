@@ -23,9 +23,9 @@ import numpy as np
 import pandas as pd
 
 from app.config import Settings
-from app.core.duckdb_engine import DataEngine
-from app.llm.ollama_provider import OllamaProvider
-from app.services.pipeline import Turn, answer_question
+from app.ingestion.engine import DataEngine
+from app.intelligence.llm.ollama_provider import OllamaProvider
+from app.analytics.pipeline import Turn, answer_question
 
 
 def build_data() -> tuple[bytes, bytes, pd.DataFrame, pd.DataFrame]:

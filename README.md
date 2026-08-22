@@ -65,6 +65,63 @@ Two consequences that matter:
 9. **Pluggable SQL generation** — `SQL_GENERATOR=langchain` runs the generation step as a
    LangChain LCEL chain over the same providers. A test asserts both paths return identical
    SQL, rows and charts: the framework owns prompt assembly, never correctness or cost control.
+10. **Data quality profiling at ingest** — nulls, duplicate rows, constant columns,
+    identifier-like columns and numbers-stored-as-text, computed as DuckDB aggregates.
+    Surfaced in the sidebar, and the serious ones are given to the model, because
+    "this column is 90% empty" changes what a correct answer to a question about its
+    average looks like.
+11. **Result validation** — the guardrail asks whether SQL is safe to run; this asks
+    whether the result means what was asked. An `AVG()` over a mostly-empty column, a
+    filter that matched nothing, a `LIMIT` the question never requested — each becomes
+    a caveat shown beside the answer, never a reason to hide it.
+12. **Confidence from observed facts** — attempts taken, caveats raised, whether the
+    schema was narrowed, whether a detected join was relied on. Not the model's opinion
+    of itself: models are poorly calibrated about their own output. Three buckets with
+    the reasons attached, because a bare score invites false precision.
+13. **Ambiguity handling** — "which region is best?" has no single correct SQL. Where one
+    reading is clearly intended the app answers and *states the assumption*; where
+    several measures are equally plausible it asks, offering each as one click. Lexical
+    and pre-LLM, so it costs nothing.
+14. **An eval suite, not a vibe** — `evals/` holds a labelled question set whose expected
+    answers are computed in pandas from the same fixtures. Accuracy is a number that
+    regresses visibly when a prompt changes, and CI gates on it.
+
+---
+
+## Architecture
+
+The backend is laid out as the pipeline it implements, so each stage is one folder:
+
+```
+backend/app/
+├── ingestion/          files in, tables out
+│   ├── engine.py               DuckDB session: CSV/Excel/JSON/Parquet loaders + execution
+│   ├── schema_profiler.py      schema text for the prompt + schema-RAG narrowing
+│   └── naming.py               file/sheet names -> safe SQL identifiers
+├── intelligence/       question in, SQL out
+│   ├── relationship_detector.py  cross-file join keys (name + dtype + value overlap)
+│   ├── ambiguity_detector.py     underspecified questions: assume-and-state, or ask
+│   ├── sql_generator.py          native or LangChain generation path
+│   ├── prompts.py
+│   └── llm/                      provider abstraction (Ollama / Groq)
+├── analytics/          SQL in, rows out
+│   ├── query_validator.py      SELECT-only guardrail (sqlglot)
+│   └── pipeline.py             the /ask orchestration + self-correction loop
+├── validation/         is this answer trustworthy?
+│   ├── data_quality.py         nulls, duplicates, constants, numbers-as-text
+│   ├── result_validator.py     does the result answer the question asked?
+│   ├── confidence.py           a level derived from what actually happened
+│   └── pii.py                  masking for prompt samples
+├── visualization/
+│   └── chart_builder.py        chart type from result shape
+└── runtime/
+    ├── session_store.py        per-session engine, history, cached profile
+    └── settings.py             runtime overrides
+```
+
+A question travels down that list in order: **ingestion** has already run, **intelligence**
+turns the question into SQL, **analytics** validates and executes it, **validation** decides
+what caveats the answer carries, and **visualization** picks how to draw it.
 
 ---
 
@@ -184,13 +241,28 @@ never visible to another.
 
 ```bash
 cd backend
-.venv/Scripts/python.exe tests/test_pipeline.py
-.venv/Scripts/python.exe tests/test_session_key.py
+.venv/Scripts/python.exe tests/test_pipeline.py       # 15
+.venv/Scripts/python.exe tests/test_session_key.py    # 6
+.venv/Scripts/python.exe tests/test_validation.py     # 14
 ```
 
-21 tests in two suites. `test_pipeline.py` (15) covers the parts that must be right
+### Eval suite
+
+```bash
+.venv/Scripts/python.exe evals/run_eval.py --mock     # no API key needed
+.venv/Scripts/python.exe evals/run_eval.py            # against the configured model
+```
+
+A labelled set of 16 questions — aggregates, filters, grouping, trends, cross-file joins,
+two refusals for absent data and two for unsafe requests. Expected values are computed in
+pandas from the same fixtures, so the suite cannot drift into blessing a wrong answer.
+**16/16 against `openai/gpt-oss-120b`.** `--mock` swaps in scripted SQL to exercise the
+pipeline without a model, which is what CI runs on every push (`--min-accuracy 1.0`).
+
+35 tests in three suites. `test_pipeline.py` (15) covers the parts that must be right
 regardless of which model is plugged in; `test_session_key.py` (6) drives the real app over
-HTTP to assert the bring-your-own-key security properties. Between them:
+HTTP to assert the bring-your-own-key security properties; `test_validation.py` (14) covers
+data quality, result validation, confidence and ambiguity. Between them:
 guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
 retry exhaustion, cross-file joins, chart selection, bounded multi-turn context,
 schema-only privacy mode, PII masking, native-vs-LangChain parity, SQL extraction across

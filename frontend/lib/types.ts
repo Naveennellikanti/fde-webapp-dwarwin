@@ -27,6 +27,7 @@ export interface SchemaResponse {
   session_id: string;
   tables: TableInfo[];
   joins: JoinHint[];
+  quality: TableQualityInfo[];
 }
 
 export type UploadResponse = SchemaResponse;
@@ -50,7 +51,39 @@ export interface SqlAttempt {
   error: string | null;
 }
 
-export type AskStatus = 'ok' | 'cannot_answer' | 'empty' | 'error';
+export type AskStatus =
+  | 'ok'
+  | 'cannot_answer'
+  | 'empty'
+  | 'error'
+  | 'needs_clarification';
+
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+export type QualitySeverity = 'info' | 'warning';
+
+export interface ColumnQualityInfo {
+  name: string;
+  dtype: string;
+  null_count: number;
+  null_pct: number;
+  distinct_count: number;
+}
+
+export interface QualityIssueInfo {
+  kind: string;
+  severity: QualitySeverity;
+  message: string;
+  column: string | null;
+}
+
+export interface TableQualityInfo {
+  table: string;
+  row_count: number;
+  duplicate_rows: number;
+  columns: ColumnQualityInfo[];
+  issues: QualityIssueInfo[];
+}
 
 export interface AskResponse {
   session_id: string;
@@ -65,6 +98,16 @@ export interface AskResponse {
   backend_used: string | null;
   tokens_used: number;
   truncated: boolean;
+  /** Things the user should know about this answer without reading the SQL. */
+  caveats: string[];
+  /** Interpretations the app chose on the user's behalf, stated rather than hidden. */
+  assumptions: string[];
+  /** Populated when status is 'needs_clarification'. */
+  clarification_options: string[];
+  /** Derived from how the answer was produced, not from asking the model. */
+  confidence: ConfidenceLevel | null;
+  confidence_score: number | null;
+  confidence_reasons: string[];
 }
 
 export type LlmBackend = 'auto' | 'ollama' | 'groq';
