@@ -39,7 +39,7 @@ keys). RAG earns its place at the metadata layer.
 
 **A provider abstraction, because deployment forced it.** Hosted platforms can't run Ollama.
 Rather than pick one, both open-source backends sit behind one interface: local Qwen2.5-Coder for
-privacy, hosted Llama 3.3 for a public demo. Switching is a config flag, not a code change.
+privacy, hosted gpt-oss-120b for a public demo. Switching is a config flag, not a code change.
 
 **Bounded everything.** The failure mode that produces horror-story bills is an unbounded agent
 loop. There is no open-ended loop here: retries cap at 3, output tokens are capped, conversation

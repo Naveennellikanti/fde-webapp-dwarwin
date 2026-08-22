@@ -77,8 +77,8 @@ Two consequences that matter:
 | Query engine | **DuckDB** (in-process) | Reads CSV/Excel natively, real SQL, zero infrastructure |
 | SQL safety | `sqlglot` | Parse-level validation, not regex guessing |
 | Orchestration | Explicit pipeline (LangChain LCEL optional) | Bounded and debuggable by default; framework path available via config |
-| Model (local) | **Qwen2.5-Coder 7B** via Ollama | Open-source, strong at SQL, data never leaves the machine |
-| Model (hosted) | **Llama 3.3 70B** via Groq | Open-source, fast, free tier |
+| Model (local) | **Qwen2.5-Coder 3B** via Ollama | Open-source, strong at SQL, data never leaves the machine. 3B stays usable without a GPU; 7B is more accurate on unusual joins |
+| Model (hosted) | **gpt-oss-120b** via Groq | Open-weights, fast, free tier. Any OpenAI-compatible model works — set `GROQ_MODEL` |
 
 ---
 
