@@ -15,6 +15,7 @@ from app.core.runtime_settings import effective_settings, update_overrides
 from app.core.session_store import SessionStore
 from app.llm.base import LLMUnavailableError
 from app.llm.factory import get_provider
+from app.llm.groq_provider import GroqProvider
 from app.llm.ollama_provider import OllamaProvider
 from app.schemas import (
     AskRequest,
@@ -23,6 +24,7 @@ from app.schemas import (
     JoinHint,
     SchemaResponse,
     SessionResponse,
+    SessionKeyUpdate,
     SettingsUpdate,
     TableInfo,
     UploadResponse,
@@ -112,6 +114,54 @@ async def delete_session(session_id: str) -> dict[str, bool]:
     return {"deleted": store.delete(session_id)}
 
 
+@app.put("/session/{session_id}/key")
+async def set_session_key(session_id: str, req: SessionKeyUpdate) -> dict[str, object]:
+    """Attach a bring-your-own API key to one session.
+
+    Scoped to the session on purpose. A single global key settable over HTTP would let
+    any visitor to a deployed instance replace the key that everyone else's questions
+    are billed to, so this never touches the process-wide configuration and is never
+    written to disk. `POST /ask` prefers the session key when present and otherwise
+    falls back to the server environment.
+
+    The response reports only whether a key is now held — the value is never echoed.
+    """
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+
+    key = (req.api_key or "").strip()
+    if not key:
+        session.api_key = None
+        return {**session.redacted(), "verified": False}
+
+    # Verify before storing, so a typo surfaces here rather than on the next question.
+    eff = effective_settings(settings)
+    probe = GroqProvider(
+        key, eff.groq_base_url, eff.groq_model, eff.temperature, eff.request_timeout_s
+    )
+    if not await probe.verify_key():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "That key was rejected by the model provider (or it could not be "
+                "reached). It has not been stored."
+            ),
+        )
+
+    session.api_key = key
+    return {**session.redacted(), "verified": True}
+
+
+@app.delete("/session/{session_id}/key")
+async def clear_session_key(session_id: str) -> dict[str, object]:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    session.api_key = None
+    return session.redacted()
+
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload(
     session_id: str = Form(...),
@@ -173,6 +223,10 @@ async def ask(req: AskRequest) -> AskResponse:
         )
 
     eff = effective_settings(settings)
+    # A session-scoped key takes precedence over the server environment, so a reviewer
+    # can bring their own without it leaking into anyone else's session.
+    if session.api_key:
+        eff = eff.model_copy(update={"groq_api_key": session.api_key})
     try:
         provider = await get_provider(eff)
     except LLMUnavailableError as e:

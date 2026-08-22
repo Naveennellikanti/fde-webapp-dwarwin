@@ -83,11 +83,22 @@ export interface AppConfig {
   available_backends: { ollama: boolean; groq: boolean };
 }
 
-/** Non-secret settings the UI may change. API keys are deliberately not settable. */
+/** Non-secret settings the UI may change. Keys go through the session endpoints. */
 export interface SettingsUpdate {
   schema_only?: boolean;
   llm_backend?: LlmBackend;
   sample_rows?: number;
+}
+
+/**
+ * Result of attaching a bring-your-own key to the session. The key itself is never
+ * returned by the API — only whether one is currently held.
+ */
+export interface SessionKeyState {
+  session_id: string;
+  has_key: boolean;
+  tokens_used: number;
+  verified?: boolean;
 }
 
 /** One entry in the conversation thread. */

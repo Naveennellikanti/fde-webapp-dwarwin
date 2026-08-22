@@ -3,13 +3,17 @@
 import { useState } from 'react';
 import { Cpu, Loader2, Lock, ShieldCheck, X } from 'lucide-react';
 
-import { updateSettings } from '@/lib/api';
+import { clearSessionKey, getConfig, setSessionKey, updateSettings } from '@/lib/api';
 import type { AppConfig, LlmBackend } from '@/lib/types';
 
 interface Props {
   config: AppConfig;
   onConfigChange: (config: AppConfig) => void;
   onClose: () => void;
+  /** Null before the session bootstraps; the key field stays disabled until then. */
+  sessionId: string | null;
+  hasSessionKey: boolean;
+  onSessionKeyChange: (hasKey: boolean) => void;
 }
 
 const BACKENDS: { value: LlmBackend; label: string; blurb: string }[] = [
@@ -18,9 +22,63 @@ const BACKENDS: { value: LlmBackend; label: string; blurb: string }[] = [
   { value: 'groq', label: 'Hosted (Groq)', blurb: 'Only schema + question transit' },
 ];
 
-export default function SettingsPanel({ config, onConfigChange, onClose }: Props) {
+export default function SettingsPanel({
+  config,
+  onConfigChange,
+  onClose,
+  sessionId,
+  hasSessionKey,
+  onSessionKeyChange,
+}: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [keyInput, setKeyInput] = useState('');
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keyNote, setKeyNote] = useState<string | null>(null);
+  const hasKey = hasSessionKey;
+
+  async function saveKey() {
+    if (!sessionId) {
+      setKeyError('No active session yet.');
+      return;
+    }
+    setKeyBusy(true);
+    setKeyError(null);
+    setKeyNote(null);
+    try {
+      const state = await setSessionKey(sessionId, keyInput.trim());
+      onSessionKeyChange(state.has_key);
+      // Drop the value from React state as soon as the server has it, so it does not
+      // sit in the component tree (or a devtools snapshot) longer than necessary.
+      setKeyInput('');
+      setKeyNote('Key verified and active for this session.');
+      onConfigChange(await getConfig());
+    } catch (e) {
+      setKeyError(e instanceof Error ? e.message : 'Could not save that key.');
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function removeKey() {
+    if (!sessionId) return;
+    setKeyBusy(true);
+    setKeyError(null);
+    setKeyNote(null);
+    try {
+      const state = await clearSessionKey(sessionId);
+      onSessionKeyChange(state.has_key);
+      setKeyInput('');
+      setKeyNote('Key removed. Falling back to the server configuration.');
+      onConfigChange(await getConfig());
+    } catch (e) {
+      setKeyError(e instanceof Error ? e.message : 'Could not clear the key.');
+    } finally {
+      setKeyBusy(false);
+    }
+  }
 
   async function apply(patch: Parameters<typeof updateSettings>[0]) {
     setSaving(true);
@@ -35,9 +93,14 @@ export default function SettingsPanel({ config, onConfigChange, onClose }: Props
   }
 
   function availability(b: LlmBackend): boolean {
+    // `/config` is session-agnostic, so `available_backends.groq` reflects only the
+    // key the server was started with. A session that has brought its own key can use
+    // the hosted backend regardless — without this, pasting a valid key leaves the
+    // option greyed out and unselectable.
+    const groqOk = config.available_backends.groq || hasKey;
     if (b === 'ollama') return config.available_backends.ollama;
-    if (b === 'groq') return config.available_backends.groq;
-    return config.available_backends.ollama || config.available_backends.groq;
+    if (b === 'groq') return groqOk;
+    return config.available_backends.ollama || groqOk;
   }
 
   return (
@@ -126,12 +189,72 @@ export default function SettingsPanel({ config, onConfigChange, onClose }: Props
             </p>
           </section>
 
-          {/* ---- credentials note ---- */}
+          {/* ---- bring-your-own key ---- */}
+          <section>
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Lock className="h-3.5 w-3.5" aria-hidden />
+              Your Groq API key
+              {hasKey && (
+                <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-emerald-700">
+                  in use for this session
+                </span>
+              )}
+            </h3>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveKey();
+              }}
+              className="mt-2.5 flex gap-2"
+            >
+              <input
+                type="password"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                placeholder={hasKey ? '•••••••• (stored for this session)' : 'gsk_…'}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={keyBusy}
+                aria-label="Groq API key"
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs text-slate-800 placeholder:font-sans placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              />
+              <button
+                type="submit"
+                disabled={keyBusy || keyInput.trim().length === 0}
+                className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+              >
+                {keyBusy ? 'Checking…' : 'Save'}
+              </button>
+              {hasKey && (
+                <button
+                  type="button"
+                  disabled={keyBusy}
+                  onClick={() => void removeKey()}
+                  className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Clear
+                </button>
+              )}
+            </form>
+
+            {keyError && <p className="mt-2 text-xs text-red-700">{keyError}</p>}
+            {keyNote && !keyError && <p className="mt-2 text-xs text-emerald-700">{keyNote}</p>}
+
+            <p className="mt-2 text-xs text-slate-500">
+              Verified before it is stored, then kept in memory for{' '}
+              <span className="font-medium text-slate-700">this session only</span> — never
+              written to disk, never sent back to the browser, and discarded when the session
+              ends. Leave it empty to use the key the server was started with.
+            </p>
+          </section>
+
+          {/* ---- data handling note ---- */}
           <section className="flex items-start gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
-            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+            <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
             <p className="text-xs text-slate-600">
-              API keys are configured on the server and are never sent to the browser or settable
-              here. Your uploaded rows stay in DuckDB — only the schema reaches the model.
+              Your uploaded rows stay in DuckDB on the server — only the schema reaches the
+              model. Choose the local backend and nothing leaves the machine at all.
             </p>
           </section>
 

@@ -24,7 +24,8 @@ Both installs completed with no errors. `npx tsc --noEmit` is clean.
 ## 1. Test suite on the clean checkout
 
 ```
-15/15 passed
+tests/test_pipeline.py     15/15 passed
+tests/test_session_key.py   6/6 passed
 ```
 
 Run before any model was configured — the suite uses a scripted mock LLM, so a
@@ -120,7 +121,25 @@ The two refusals happen at the prompt layer. Had the model complied, the sqlglot
 guardrail (SELECT-only, filesystem functions blocked by name) and DuckDB's
 `enable_external_access=false` would each have stopped it independently.
 
-## 8. Presentation
+## 8. Bring-your-own key
+
+Run with `GROQ_API_KEY` **empty** so the server has no credential of its own:
+
+| Step | Result |
+|---|---|
+| `GET /config` | `available_backends.groq: false` |
+| Session A asks a question | `503 GROQ_API_KEY is not set` |
+| Session B submits a key | `200`, `has_key: true`, `verified: true` |
+| Session B asks the same question | `200` → correct figure, `backend_used: groq:openai/gpt-oss-120b` |
+| **Session A asks again** | still `503` — B's key did not leak to A |
+| Session B clears its key | `503` again |
+
+Through the UI on that same keyless server: "Hosted (Groq)" starts *unavailable*, pasting a key
+flips it to selectable, and the next question returns `1,636,950.46` correctly. A deliberately
+invalid key is rejected with `400` and not stored. The input is cleared once the server holds
+the key, so it does not linger in the component tree.
+
+## 9. Presentation
 
 - Temporal axes label by granularity (`Jan 2024`), not truncated ISO strings.
 - One magnitude unit per axis (`0 · 70k · 140k · 210k · 280k`), never mixed.
@@ -142,3 +161,5 @@ guardrail (SELECT-only, filesystem functions blocked by name) and DuckDB's
   as a hint to the model, and the generated SQL is always shown, so a wrong guess is
   visible rather than silent.
 - **Charts are auto-selected** from result shape. There is no manual override.
+- **A session key lives only in that process.** Restarting the backend, or running more than
+  one worker, means re-entering it — the same constraint as the session store itself.

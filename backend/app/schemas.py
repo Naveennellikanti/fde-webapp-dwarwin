@@ -46,6 +46,15 @@ class SettingsUpdate(BaseModel):
     sample_rows: Optional[int] = Field(default=None, ge=0, le=10)
 
 
+class SessionKeyUpdate(BaseModel):
+    """Bring-your-own API key for a single session.
+
+    Send an empty value to clear it. The key is never returned by any endpoint — the
+    responses carry `has_key` instead.
+    """
+    api_key: Optional[str] = Field(default=None, max_length=512)
+
+
 class UploadResponse(SchemaResponse):
     pass
 

@@ -167,6 +167,10 @@ GROQ_API_KEY=gsk_...
 Hosted model runtimes cannot run Ollama, which is exactly why the provider is an
 abstraction — the same image runs local or hosted on a config flag.
 
+You can also deploy with **no key at all** and let each visitor paste their own in the settings
+panel (see [Credentials](#credentials)). Nothing is billed to you, and one visitor's key is
+never visible to another.
+
 ---
 
 ## Tests
@@ -174,9 +178,12 @@ abstraction — the same image runs local or hosted on a config flag.
 ```bash
 cd backend
 .venv/Scripts/python.exe tests/test_pipeline.py
+.venv/Scripts/python.exe tests/test_session_key.py
 ```
 
-15 tests covering the parts that must be right regardless of which model is plugged in:
+21 tests in two suites. `test_pipeline.py` (15) covers the parts that must be right
+regardless of which model is plugged in; `test_session_key.py` (6) drives the real app over
+HTTP to assert the bring-your-own-key security properties. Between them:
 guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
 retry exhaustion, cross-file joins, chart selection, bounded multi-turn context,
 schema-only privacy mode, PII masking, native-vs-LangChain parity, SQL extraction across
@@ -203,6 +210,8 @@ all eight acceptance-criteria questions, the same question answered identically 
 | `POST /ask` | `{session_id, question}` → answer, SQL, rows, chart spec, attempts |
 | `GET /config` | Active model backend + privacy settings (never returns secrets) |
 | `PUT /settings` | Change non-secret runtime settings (privacy mode, model backend) |
+| `PUT /session/{id}/key` | Attach a bring-your-own API key to **one session** (verified first; reports `has_key`, never the key) |
+| `DELETE /session/{id}/key` | Forget that session's key and fall back to the server environment |
 | `DELETE /session/{id}` | Destroy session and its data |
 
 ### Supported file types
@@ -214,9 +223,25 @@ The app is schema-agnostic — it introspects whatever columns arrive, so any *t
 
 ### Credentials
 
-API keys live in the server environment and are **never** exposed to the browser or settable
-through the API. `GET /config` reports only whether a backend is *available* (a boolean), never
-the key. The UI settings panel adjusts non-secret knobs only: model backend and privacy mode.
+The default is a key in the server environment. `GET /config` reports only whether a backend is
+*available* (a boolean) — never the key.
+
+The settings panel also accepts a **bring-your-own key**, so a reviewer can try a deployed
+instance with their own Groq key instead of being handed one. That path is deliberately narrow:
+
+- **Session-scoped, not global.** A single key settable over HTTP would let any visitor replace
+  the key that everyone else's questions are billed to. The key attaches to one session and is
+  invisible to every other session.
+- **Verified before it is stored** (`GET /models` — no tokens spent), so a typo fails at the
+  field rather than on the next question.
+- **Memory only.** Never written to disk, never returned by any endpoint, absent from
+  `repr(Session)`, and gone when the session expires or the process restarts.
+- **Never persisted to `.env`.** Writing a secret to server configuration from a web request is
+  the thing this design is avoiding.
+
+`POST /ask` prefers a session key when present and otherwise falls back to the environment.
+`tests/test_session_key.py` asserts these properties against the running app: no echo, no
+cross-session leak, rejected keys not stored.
 
 ---
 

@@ -29,7 +29,33 @@ class GroqProvider(LLMProvider):
         self.timeout_s = timeout_s
 
     async def available(self) -> bool:
+        """Whether this backend *could* be selected — configuration, not validity.
+
+        Deliberately does not call the network: `/config` is requested on every page
+        load, and a round trip there would slow the UI down for no benefit. Use
+        `verify_key` when the question is whether a specific key actually works.
+        """
         return bool(self.api_key)
+
+    async def verify_key(self) -> bool:
+        """Check the key against the provider, cheaply and without spending tokens.
+
+        `GET /models` exercises exactly the credential path a completion would use, so
+        a typo or a revoked key is caught here rather than surfacing as a failed
+        question later. Network problems are reported as *not verified* rather than
+        silently accepted — storing an unverified key would defeat the point.
+        """
+        if not self.api_key:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=min(self.timeout_s, 15.0)) as client:
+                r = await client.get(
+                    f"{self.base_url}/models",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+            return r.status_code == 200
+        except Exception:  # noqa: BLE001
+            return False
 
     async def complete(
         self, system: str, messages: list[dict[str, str]], max_tokens: int

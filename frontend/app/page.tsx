@@ -33,6 +33,7 @@ export default function Page() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [asking, setAsking] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [hasSessionKey, setHasSessionKey] = useState(false);
 
   const threadRef = useRef<HTMLDivElement>(null);
   const bootstrapped = useRef(false);
@@ -145,6 +146,9 @@ export default function Page() {
           config={config}
           onConfigChange={setConfig}
           onClose={() => setSettingsOpen(false)}
+          sessionId={sessionId}
+          hasSessionKey={hasSessionKey}
+          onSessionKeyChange={setHasSessionKey}
         />
       )}
 

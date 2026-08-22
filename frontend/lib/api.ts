@@ -2,6 +2,7 @@ import type {
   AppConfig,
   AskResponse,
   SchemaResponse,
+  SessionKeyState,
   SessionResponse,
   SettingsUpdate,
   UploadResponse,
@@ -100,6 +101,42 @@ export async function updateSettings(patch: SettingsUpdate): Promise<AppConfig> 
   }
   if (!res.ok) throw await toApiError(res);
   return (await res.json()) as AppConfig;
+}
+
+/**
+ * Attach a bring-your-own API key to this session (empty string clears it).
+ *
+ * The key is sent once and never read back: the response reports only `has_key`. It is
+ * held in the backend's memory for this session alone, so it cannot affect anyone
+ * else's questions and is gone when the session expires.
+ */
+export async function setSessionKey(
+  sessionId: string,
+  apiKey: string
+): Promise<SessionKeyState> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/session/${sessionId}/key`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+  } catch (e) {
+    throw networkError(e);
+  }
+  if (!res.ok) throw await toApiError(res);
+  return (await res.json()) as SessionKeyState;
+}
+
+export async function clearSessionKey(sessionId: string): Promise<SessionKeyState> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/session/${sessionId}/key`, { method: 'DELETE' });
+  } catch (e) {
+    throw networkError(e);
+  }
+  if (!res.ok) throw await toApiError(res);
+  return (await res.json()) as SessionKeyState;
 }
 
 export function getSchema(sessionId: string): Promise<SchemaResponse> {

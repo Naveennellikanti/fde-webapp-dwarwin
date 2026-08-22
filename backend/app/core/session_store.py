@@ -31,8 +31,25 @@ class Session:
     history: list[Turn] = field(default_factory=list)
     tokens_used: int = 0
 
+    # Optional bring-your-own key, scoped to THIS session only.
+    #
+    # Deliberately per-session rather than global: a global key set over HTTP would let
+    # any visitor to a deployed instance overwrite the key everyone else's questions are
+    # billed to. Held in memory only — never written to disk, never returned by the API
+    # (endpoints expose `has_key: true` and nothing more), and discarded when the
+    # session expires or the process restarts.
+    api_key: str | None = field(default=None, repr=False)
+
     def touch(self) -> None:
         self.last_seen = time.time()
+
+    def redacted(self) -> dict[str, object]:
+        """Session facts that are safe to serialise. Never includes the key itself."""
+        return {
+            "session_id": self.id,
+            "has_key": self.api_key is not None,
+            "tokens_used": self.tokens_used,
+        }
 
 
 class SessionStore:
