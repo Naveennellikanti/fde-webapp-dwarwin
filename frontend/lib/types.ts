@@ -124,6 +124,8 @@ export interface AppConfig {
   allowed_extensions: string[];
   /** Which backends could be selected. Booleans only — the API key is never exposed. */
   available_backends: { ollama: boolean; groq: boolean };
+  /** Why a backend is unavailable, so the UI can say what to do about it. */
+  backend_notes?: { ollama?: string; groq?: string };
 }
 
 /** Non-secret settings the UI may change. Keys go through the session endpoints. */

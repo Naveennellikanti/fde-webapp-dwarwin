@@ -73,9 +73,10 @@ async def config() -> dict[str, object]:
 
     # Which backends *could* be selected — lets the UI disable impossible options
     # without ever revealing the key itself.
-    ollama_ok = await OllamaProvider(
-        eff.ollama_url, eff.ollama_model, eff.temperature, eff.request_timeout_s
-    ).available()
+    ollama_ok, ollama_reason = await OllamaProvider(
+        eff.ollama_url, eff.ollama_model, eff.temperature, eff.ollama_timeout_s
+    ).status()
+    groq_reason = "" if eff.groq_api_key else "No API key configured. Add one below."
 
     return {
         "backend": backend,
@@ -88,6 +89,12 @@ async def config() -> dict[str, object]:
         "available_backends": {
             "ollama": ollama_ok,
             "groq": bool(eff.groq_api_key),  # boolean only — the key is never exposed
+        },
+        # Why a backend is unavailable, so the UI can say what to do rather than just
+        # greying the option out. Never contains a secret.
+        "backend_notes": {
+            "ollama": ollama_reason,
+            "groq": groq_reason,
         },
     }
 

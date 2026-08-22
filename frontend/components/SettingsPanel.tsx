@@ -92,6 +92,13 @@ export default function SettingsPanel({
     }
   }
 
+  /** The reason a backend cannot be used, if the server gave one. */
+  function note(b: LlmBackend): string {
+    if (b === 'ollama') return config.backend_notes?.ollama ?? '';
+    if (b === 'groq') return hasKey ? '' : (config.backend_notes?.groq ?? '');
+    return '';
+  }
+
   function availability(b: LlmBackend): boolean {
     // `/config` is session-agnostic, so `available_backends.groq` reflects only the
     // key the server was started with. A session that has brought its own key can use
@@ -142,9 +149,11 @@ export default function SettingsPanel({
                         : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}
                       ${!enabled ? 'cursor-not-allowed opacity-45' : ''}`}
                   >
-                    <span>
+                    <span className="min-w-0">
                       <span className="block text-sm font-medium text-slate-800">{b.label}</span>
-                      <span className="block text-xs text-slate-500">{b.blurb}</span>
+                      <span className="block text-xs text-slate-500">
+                        {!enabled && note(b.value) ? note(b.value) : b.blurb}
+                      </span>
                     </span>
                     {!enabled ? (
                       <span className="text-[11px] text-slate-400">unavailable</span>

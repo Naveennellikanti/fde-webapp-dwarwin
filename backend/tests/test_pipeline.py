@@ -275,6 +275,60 @@ def test_ollama_errors_always_state_a_cause():
           f"local budget {s.ollama_timeout_s:.0f}s vs hosted {s.request_timeout_s:.0f}s")
 
 
+def test_ollama_availability_requires_the_model_not_just_the_server():
+    """A reachable Ollama with the wrong model is not an available backend.
+
+    Found by pointing the app at a model that was never pulled: /api/tags answered 200,
+    so availability reported healthy, the UI offered "Local" as selectable, and the
+    failure only surfaced as a 404 on the user's first question. Whether a backend can
+    serve a request is the thing being asked, so the model has to be present.
+    """
+    import httpx
+
+    from app.intelligence.llm.ollama_provider import OllamaProvider
+
+    class _Response:
+        def __init__(self, payload, status=200):
+            self.status_code = status
+            self._payload = payload
+        def json(self):
+            return self._payload
+
+    class _Client:
+        def __init__(self, payload, status=200, boom=False):
+            self._payload, self._status, self._boom = payload, status, boom
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a, **k):
+            if self._boom:
+                raise httpx.ConnectError("refused")
+            return _Response(self._payload, self._status)
+
+    installed = {"models": [{"name": "qwen2.5-coder:3b"}]}
+    cases = [
+        ("model present",   "qwen2.5-coder:3b", installed, False, True,  ""),
+        ("model not pulled","llama3.3:70b",     installed, False, False, "not pulled"),
+        ("untagged name",   "qwen2.5-coder",    installed, False, False, "not pulled"),
+        ("no models at all","qwen2.5-coder:3b", {"models": []}, False, False, "no models"),
+        ("server down",     "qwen2.5-coder:3b", installed, True,  False, "not running"),
+    ]
+    original = httpx.AsyncClient
+    try:
+        for label, model, payload, boom, want_ok, want_text in cases:
+            httpx.AsyncClient = lambda *a, **k: _Client(payload, boom=boom)  # type: ignore[misc,assignment]
+            provider = OllamaProvider("http://localhost:11434", model, 0.0, 30.0)
+            ok, reason = run(provider.status())
+            assert ok is want_ok, f"{label}: ok={ok}, expected {want_ok}"
+            assert want_text in reason.lower(), f"{label}: reason was {reason!r}"
+            if not ok:
+                # An unusable backend must say what to do about it.
+                assert "ollama" in reason.lower(), f"{label}: no remedy in {reason!r}"
+            assert run(provider.available()) is want_ok
+    finally:
+        httpx.AsyncClient = original  # type: ignore[misc]
+    print(f"PASS  ollama status: {len(cases)} states distinguished, each with a remedy")
+
+
 def test_sql_extraction_across_model_styles():
     """Different model families wrap SQL differently — all must parse.
 

@@ -30,6 +30,7 @@ from app.intelligence import ambiguity_detector
 from app.validation.confidence import score_answer
 from app.validation.data_quality import TableQuality, quality_notes_for_prompt
 from app.validation.result_validator import validate_result
+from app.validation.summary_validator import check_summary, deterministic_summary
 
 _FENCE = re.compile(r"```(?:sql)?\s*(.*?)```", re.S | re.I)
 # Reasoning models (Qwen3, DeepSeek-R1, …) prefix their answer with a thinking block.
@@ -211,11 +212,27 @@ async def answer_question(
         )
         tokens_used += summary_tokens
 
-        # ---- 3a. Does the result look like it answers the question? ------------
+        # ---- 3a. Does the prose quote numbers the query actually returned? -----
+        # The model is allowed to reformat and to derive, but not to invent. A small
+        # model summarising 177,199.00 as "$1,771,990" is the failure this catches:
+        # table and chart stay correct because they come from DuckDB, and only the
+        # sentence a user reads first is wrong.
+        summary_check = check_summary(summary, rows)
+        summary_caveats: list[str] = []
+        if not summary_check.ok:
+            summary_caveats.append(summary_check.reason)
+            summary = deterministic_summary(columns, rows)
+
+        # ---- 3b. Does the result look like it answers the question? ------------
         report = validate_result(
             question=question, sql=sql, columns=columns, rows=rows,
             quality=quality, truncated=truncated,
         )
+        if summary_caveats:
+            report.add(
+                "summary_rewritten", "warning",
+                "The model's wording misquoted the result and was replaced.",
+            )
         confidence = score_answer(
             attempts=len(attempts), validation=report,
             schema_was_narrowed=schema_was_narrowed, row_count=len(rows),
@@ -227,7 +244,7 @@ async def answer_question(
             sql=sql, columns=columns, rows=rows, chart=chart, attempts=attempts,
             backend_used=backend or completion.backend, tokens_used=tokens_used,
             truncated=truncated,
-            caveats=[c.message for c in report.caveats],
+            caveats=summary_caveats + [c.message for c in report.caveats],
             assumptions=assumptions,
             confidence=confidence.level, confidence_score=confidence.score,
             confidence_reasons=confidence.reasons,

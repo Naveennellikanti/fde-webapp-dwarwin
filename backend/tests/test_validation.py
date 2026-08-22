@@ -22,6 +22,7 @@ from app.intelligence import ambiguity_detector
 from app.validation.confidence import score_answer
 from app.validation.data_quality import profile_table, quality_notes_for_prompt
 from app.validation.result_validator import ValidationReport, validate_result
+from app.validation.summary_validator import check_summary, deterministic_summary
 
 
 def engine_from(frames: dict[str, pd.DataFrame]) -> DataEngine:
@@ -154,6 +155,65 @@ def test_clean_result_has_no_caveats():
     )
     assert r.caveats == [], [c.message for c in r.caveats]
     print("PASS  result validation: a clean result is reported clean")
+
+
+# ------------------------------------------------------- summary verification ---
+ROWS = [
+    {"region": "West", "total_revenue": 177199.00},
+    {"region": "East", "total_revenue": 177155.86},
+    {"region": "South", "total_revenue": 158008.69},
+    {"region": "North", "total_revenue": 142166.19},
+]
+
+
+def test_summary_catches_a_misquoted_figure():
+    """The exact failure observed from qwen2.5-coder:3b on a live run.
+
+    Asked to summarise a result containing 177,199.00 it wrote "$1,771,990" — every
+    figure off by a factor of ten. Chart and table were right, because those come from
+    DuckDB; only the sentence a user reads first was wrong. That is the one place the
+    model could still produce a number, so it is checked.
+    """
+    bad = (
+        "Total revenue by region: West: $1,771,990; East: $1,771,559; "
+        "South: $1,580,087; North: $1,421,662"
+    )
+    c = check_summary(bad, ROWS)
+    assert not c.ok
+    assert len(c.unmatched) == 4, c.unmatched
+    assert "does not appear in the query result" in c.reason
+    print(f"PASS  summary check: caught {len(c.unmatched)} misquoted figures")
+
+
+def test_summary_allows_reformatting_and_derivation():
+    """Strict about value, generous about form — or it would fire on good prose."""
+    ok_cases = {
+        "exact": "West led with $177,199.00, followed by East at $177,155.86.",
+        "rounded": "West took roughly $177k of the total.",
+        "thousands sep": "West: 177,199. North: 142,166.19.",
+        "a sum": "West and East together account for $354,354.86.",
+        "a difference": "West is $35,032.81 ahead of North.",
+        "percentages": "West holds 27% of revenue, North 22%.",
+        "small counts": "Four regions, top 3 shown.",
+        "a year": "All figures are for 2024.",
+        "no numbers": "West leads, North trails.",
+    }
+    for label, text in ok_cases.items():
+        c = check_summary(text, ROWS)
+        assert c.ok, f"false positive on {label}: {c.unmatched}"
+    print(f"PASS  summary check: {len(ok_cases)} legitimate phrasings all pass")
+
+
+def test_deterministic_summary_is_usable_prose():
+    grouped = deterministic_summary(["region", "total_revenue"], ROWS)
+    assert "West" in grouped and "177,199" in grouped
+    assert check_summary(grouped, ROWS).ok, "the replacement must pass its own check"
+
+    scalar = deterministic_summary(["total_revenue"], [{"total_revenue": 1636950.46}])
+    assert scalar == "Total revenue: 1,636,950.46."
+
+    assert "no rows" in deterministic_summary(["a"], []).lower()
+    print("PASS  summary fallback: readable, correct, and self-consistent")
 
 
 # ---------------------------------------------------------------- confidence ----

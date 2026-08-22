@@ -82,7 +82,20 @@ Two consequences that matter:
     reading is clearly intended the app answers and *states the assumption*; where
     several measures are equally plausible it asks, offering each as one click. Lexical
     and pre-LLM, so it costs nothing.
-14. **An eval suite, not a vibe** — `evals/` holds a labelled question set whose expected
+14. **Summary verification** — the model never computes a number, but explaining still
+    means *transcribing* one, and that is where a small model slips: asked to summarise a
+    result containing `177,199.00`, `qwen2.5-coder:3b` wrote `$1,771,990` — every figure
+    off by ten. The chart and table were right, because those come from DuckDB; only the
+    sentence a user reads first was wrong. Every figure in the prose is now matched back
+    to a returned value (generous about formatting and derived sums, strict about
+    quantity), and an unmatched one replaces the summary with a deterministic rendering
+    of the rows.
+15. **Backend readiness, not just reachability** — a running Ollama with the configured
+    model *not pulled* answers `/api/tags` perfectly happily. Availability therefore
+    checks that the model is present, and reports why it is not, so `auto` falls back to
+    hosted instead of choosing a backend that cannot answer, and the UI prints the
+    `ollama pull …` to run rather than a bare "unavailable".
+16. **An eval suite, not a vibe** — `evals/` holds a labelled question set whose expected
     answers are computed in pandas from the same fixtures. Accuracy is a number that
     regresses visibly when a prompt changes, and CI gates on it.
 
@@ -241,9 +254,9 @@ never visible to another.
 
 ```bash
 cd backend
-.venv/Scripts/python.exe tests/test_pipeline.py       # 15
+.venv/Scripts/python.exe tests/test_pipeline.py       # 16
 .venv/Scripts/python.exe tests/test_session_key.py    # 6
-.venv/Scripts/python.exe tests/test_validation.py     # 14
+.venv/Scripts/python.exe tests/test_validation.py     # 17
 ```
 
 ### Eval suite
@@ -259,10 +272,10 @@ pandas from the same fixtures, so the suite cannot drift into blessing a wrong a
 **16/16 against `openai/gpt-oss-120b`.** `--mock` swaps in scripted SQL to exercise the
 pipeline without a model, which is what CI runs on every push (`--min-accuracy 1.0`).
 
-37 tests in three suites. `test_pipeline.py` (15) covers the parts that must be right
+41 tests in three suites. `test_pipeline.py` (15) covers the parts that must be right
 regardless of which model is plugged in; `test_session_key.py` (8) drives the real app over
-HTTP to assert the bring-your-own-key security properties and table removal; `test_validation.py` (14) covers
-data quality, result validation, confidence and ambiguity. Between them:
+HTTP to assert the bring-your-own-key security properties and table removal; `test_validation.py` (17) covers
+data quality, result validation, summary verification, confidence and ambiguity. Between them:
 guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
 retry exhaustion, cross-file joins, chart selection, bounded multi-turn context,
 schema-only privacy mode, PII masking, native-vs-LangChain parity, SQL extraction across

@@ -26,13 +26,45 @@ class OllamaProvider(LLMProvider):
         self.temperature = temperature
         self.timeout_s = timeout_s
 
-    async def available(self) -> bool:
+    async def status(self) -> tuple[bool, str]:
+        """Whether this backend can actually serve a question, and why not if it cannot.
+
+        Checking only that the server answers is not enough: Ollama running without the
+        configured model pulled reports perfectly healthy, so the UI would offer "Local"
+        as selectable and the failure would surface later, on the user's first question,
+        as a 404. The model has to be present for the backend to be usable, so it is
+        part of the check — and the reason is returned so the UI can say what to do
+        instead of a bare "unavailable".
+        """
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 r = await client.get(f"{self.url}/api/tags")
-                return r.status_code == 200
         except Exception:  # noqa: BLE001
-            return False
+            return False, f"Ollama is not running at {self.url}. Start it with: ollama serve"
+
+        if r.status_code != 200:
+            return False, f"Ollama answered {r.status_code} at {self.url}."
+
+        try:
+            installed = {m.get("name", "") for m in (r.json().get("models") or [])}
+        except Exception:  # noqa: BLE001
+            return True, ""  # server is up; do not block on an unreadable tag list
+
+        if not installed:
+            return False, f"Ollama has no models. Pull one with: ollama pull {self.model}"
+
+        # An untagged name means :latest to Ollama, so compare both forms.
+        wanted = {self.model, self.model if ":" in self.model else f"{self.model}:latest"}
+        if not (wanted & installed):
+            return False, (
+                f"Ollama is running but '{self.model}' is not pulled. "
+                f"Run: ollama pull {self.model}"
+            )
+        return True, ""
+
+    async def available(self) -> bool:
+        ok, _reason = await self.status()
+        return ok
 
     async def complete(
         self, system: str, messages: list[dict[str, str]], max_tokens: int
