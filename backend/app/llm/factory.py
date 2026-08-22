@@ -35,5 +35,5 @@ async def get_provider(settings: Settings) -> LLMProvider:
         return hosted
     raise LLMUnavailableError(
         "No LLM backend available. Start Ollama locally (`ollama serve` + "
-        "`ollama pull qwen2.5-coder:7b`) or set GROQ_API_KEY."
+        "`ollama pull qwen2.5-coder:3b`) or set GROQ_API_KEY."
     )

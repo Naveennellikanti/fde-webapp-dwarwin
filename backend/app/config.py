@@ -20,9 +20,12 @@ class Settings(BaseSettings):
     # "groq"  -> force hosted Groq
     llm_backend: Literal["auto", "ollama", "groq"] = "auto"
 
-    # Ollama (local, data never leaves the machine)
+    # Ollama (local, data never leaves the machine).
+    # 3b is the default because SQL generation is a narrow task and it stays usable on
+    # a CPU-only machine (~20s/question on a 15W laptop CPU, verified). Use 7b when a
+    # GPU is available or when questions involve unusual joins.
     ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5-coder:7b"
+    ollama_model: str = "qwen2.5-coder:3b"
 
     # Groq (hosted, OpenAI-compatible). Requires GROQ_API_KEY.
     groq_api_key: str | None = None

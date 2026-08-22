@@ -93,7 +93,7 @@ docker compose up --build
 Then pull the model once:
 
 ```bash
-docker compose exec ollama ollama pull qwen2.5-coder:7b
+docker compose exec ollama ollama pull qwen2.5-coder:3b
 ```
 
 Open <http://localhost:3000>.
@@ -128,8 +128,26 @@ You need **one** of these. `LLM_BACKEND=auto` (the default) tries local first, t
 **Local — nothing leaves your machine:**
 
 ```bash
-ollama pull qwen2.5-coder:7b
+ollama pull qwen2.5-coder:3b
 ```
+
+Ollama serves on `127.0.0.1:11434` and the app finds it automatically. Verify the
+offline path end to end, with every answer checked against a pandas ground truth:
+
+```bash
+python tests/local_ollama_check.py
+```
+
+Measured on a CPU-only 15W laptop (i5-1345U, no discrete GPU): **6/6 correct, ~20s
+per question** — including a cross-file join, a `strftime` monthly trend, and an
+honest refusal. The first call is slower while the model loads into RAM. With a GPU,
+or with `qwen2.5-coder:7b`, expect better accuracy on unusual joins.
+
+> **Windows + WSL:** install Ollama on **Windows**, not inside WSL, unless you have a
+> GPU you want to pass through. Ollama binds to loopback only, so an instance inside
+> the WSL VM is not reachable from a backend running on Windows without setting
+> `OLLAMA_HOST=0.0.0.0` in WSL and pointing `OLLAMA_URL` at the VM's address. If you
+> do run the backend inside WSL, install Ollama there too and keep both on loopback.
 
 **Hosted — free key from <https://console.groq.com>:**
 

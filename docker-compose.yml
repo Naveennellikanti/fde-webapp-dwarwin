@@ -8,9 +8,11 @@ services:
       # set GROQ_API_KEY and Ollama is not reachable.
       LLM_BACKEND: ${LLM_BACKEND:-auto}
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
+      # 3b is the better default on a CPU-only machine; 7b is more accurate on
+      # tricky joins but several times slower without a GPU.
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:3b}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
-      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
       CORS_ORIGINS: http://localhost:3000
       # Privacy: set SCHEMA_ONLY=true to send column names/types only (no sample values).
       SCHEMA_ONLY: ${SCHEMA_ONLY:-false}
@@ -27,8 +29,11 @@ services:
       - backend
 
   # Local open-source model runtime. Data never leaves this machine.
+  # This is a container-local Ollama reached over the compose network, so it is
+  # independent of any Ollama installed on the host (which binds to 127.0.0.1 only
+  # and would not be reachable from inside the backend container).
   # After first start, pull the model:
-  #   docker compose exec ollama ollama pull qwen2.5-coder:7b
+  #   docker compose exec ollama ollama pull qwen2.5-coder:3b
   ollama:
     image: ollama/ollama:latest
     ports:
