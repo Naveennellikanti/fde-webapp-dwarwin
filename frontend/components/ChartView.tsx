@@ -17,7 +17,13 @@ import {
   ZAxis,
 } from 'recharts';
 import type { ChartSpec, Row } from '@/lib/types';
-import { formatNumber, makeAxisFormatter, toNumber, truncateLabel } from '@/lib/format';
+import {
+  formatNumber,
+  makeAxisFormatter,
+  makeDateAxisFormatter,
+  toNumber,
+  truncateLabel,
+} from '@/lib/format';
 
 /**
  * Categorical series slots — fixed order, never cycled (mirrors the CSS
@@ -105,16 +111,22 @@ function ChartTooltip({
   active,
   payload,
   label,
+  labelFormat,
 }: {
   active?: boolean;
   payload?: Array<{ name?: string | number; value?: unknown; color?: string }>;
   label?: unknown;
+  /** Recharts does not apply `labelFormatter` when `content` is a custom component,
+      so the axis formatter has to be threaded in explicitly. */
+  labelFormat?: (v: unknown) => string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-lift">
       {label !== undefined && label !== null && (
-        <div className="mb-1 text-xs font-medium text-slate-900">{String(label)}</div>
+        <div className="mb-1 text-xs font-medium text-slate-900">
+          {labelFormat ? labelFormat(label) : String(label)}
+        </div>
       )}
       <ul className="space-y-0.5">
         {payload.map((p, i) => {
@@ -183,6 +195,12 @@ export default function ChartView({
   const formatX = makeAxisFormatter(
     plain.map((r) => toNumber(r[x])).filter((n): n is number => n !== null)
   );
+  /* A category axis is often temporal (`date_trunc('month', …)` returns timestamps).
+     When every x value parses as a date, label the axis by date granularity instead of
+     truncating the ISO string — otherwise all ticks read "2024-01-01T00…". */
+  const formatDateX = makeDateAxisFormatter(data.map((r) => r[x]));
+  const formatCategoryX = (v: unknown, max = 18) =>
+    formatDateX ? formatDateX(v) : truncateLabel(v, max);
 
   return (
     <figure className="mt-4">
@@ -199,7 +217,7 @@ export default function ChartView({
                 tick={TICK}
                 tickLine={false}
                 axisLine={{ stroke: GRID }}
-                tickFormatter={(v: unknown) => truncateLabel(v)}
+                tickFormatter={(v: unknown) => formatCategoryX(v)}
                 interval="preserveStartEnd"
                 minTickGap={4}
               />
@@ -210,7 +228,7 @@ export default function ChartView({
                 width={56}
                 tickFormatter={formatY}
               />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(79,70,229,0.06)' }} />
+              <Tooltip content={<ChartTooltip labelFormat={(v) => formatCategoryX(v)} />} cursor={{ fill: 'rgba(79,70,229,0.06)' }} />
               {multi && <Legend wrapperStyle={legendStyle} iconType="circle" iconSize={8} />}
               {seriesKeys.map((k, i) => (
                 <Bar
@@ -231,7 +249,7 @@ export default function ChartView({
                 tick={TICK}
                 tickLine={false}
                 axisLine={{ stroke: GRID }}
-                tickFormatter={(v: unknown) => truncateLabel(v, 14)}
+                tickFormatter={(v: unknown) => formatCategoryX(v, 14)}
                 interval="preserveStartEnd"
                 minTickGap={16}
               />
@@ -242,7 +260,7 @@ export default function ChartView({
                 width={56}
                 tickFormatter={formatY}
               />
-              <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} />
+              <Tooltip content={<ChartTooltip labelFormat={(v) => formatCategoryX(v)} />} cursor={{ stroke: '#94a3b8', strokeWidth: 1 }} />
               {multi && <Legend wrapperStyle={legendStyle} iconType="circle" iconSize={8} />}
               {seriesKeys.map((k, i) => (
                 <Line
@@ -281,7 +299,7 @@ export default function ChartView({
                 tickFormatter={formatY}
               />
               <ZAxis range={[80, 80]} />
-              <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+              <Tooltip content={<ChartTooltip labelFormat={(v) => formatCategoryX(v)} />} cursor={{ strokeDasharray: '3 3' }} />
               <Scatter
                 data={plain}
                 fill={colorAt(0)}

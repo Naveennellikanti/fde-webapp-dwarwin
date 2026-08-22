@@ -226,6 +226,55 @@ def test_pii_masking():
     print("PASS  PII masking: emails/ids masked, dates & numbers preserved")
 
 
+def test_ollama_errors_always_state_a_cause():
+    """Timeouts must produce an actionable message, not a bare colon.
+
+    Found live: httpx.ReadTimeout stringifies to "", so the UI rendered
+    "Ollama request failed:" with nothing after it. Local inference is slow enough
+    that timeouts are the *expected* failure, so this is the message users see most.
+    """
+    import httpx
+
+    from app.llm.base import LLMUnavailableError
+    from app.llm.ollama_provider import OllamaProvider
+
+    provider = OllamaProvider("http://localhost:11434", "qwen2.5-coder:3b", 0.0, 300.0)
+
+    class _RaisingClient:
+        def __init__(self, exc): self.exc = exc
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **k): raise self.exc
+
+    cases = {
+        "timeout": httpx.ReadTimeout(""),          # empty str() — the original bug
+        "connect": httpx.ConnectError(""),
+        "other": httpx.HTTPError(""),
+    }
+    for label, exc in cases.items():
+        original = httpx.AsyncClient
+        httpx.AsyncClient = lambda *a, **k: _RaisingClient(exc)  # type: ignore[misc]
+        try:
+            try:
+                run(provider.complete("sys", [{"role": "user", "content": "q"}], 100))
+                raise AssertionError(f"{label}: expected LLMUnavailableError")
+            except LLMUnavailableError as e:
+                msg = str(e)
+                assert not msg.rstrip().endswith(":"), f"{label}: message ends in a bare colon: {msg!r}"
+                assert len(msg.split(":", 1)[-1].strip()) > 3, f"{label}: no cause given: {msg!r}"
+        finally:
+            httpx.AsyncClient = original  # type: ignore[misc]
+
+    # The local timeout budget must be far larger than the hosted one.
+    from app.config import Settings
+    s = Settings()
+    assert s.ollama_timeout_s >= 5 * s.request_timeout_s, (
+        f"local timeout {s.ollama_timeout_s}s is too close to hosted {s.request_timeout_s}s"
+    )
+    print(f"PASS  ollama errors: {len(cases)} failure modes give a cause; "
+          f"local budget {s.ollama_timeout_s:.0f}s vs hosted {s.request_timeout_s:.0f}s")
+
+
 def test_sql_extraction_across_model_styles():
     """Different model families wrap SQL differently — all must parse.
 

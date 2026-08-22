@@ -13,7 +13,8 @@ from app.llm.ollama_provider import OllamaProvider
 
 
 def _ollama(s: Settings) -> OllamaProvider:
-    return OllamaProvider(s.ollama_url, s.ollama_model, s.temperature, s.request_timeout_s)
+    # Local inference gets its own, much larger budget — see Settings.ollama_timeout_s.
+    return OllamaProvider(s.ollama_url, s.ollama_model, s.temperature, s.ollama_timeout_s)
 
 
 def _groq(s: Settings) -> GroqProvider:

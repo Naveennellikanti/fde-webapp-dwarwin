@@ -57,12 +57,71 @@ export function makeAxisFormatter(values: number[]): (n: number) => string {
   };
 }
 
+/* ---- temporal values -----------------------------------------------------------
+   DuckDB DATE/TIMESTAMP columns arrive as ISO strings, so `date_trunc('month', ...)`
+   reaches the UI as "2024-01-01T00:00:00". Rendered raw that is unreadable in a table
+   and, once truncated to fit an axis, becomes "2024-01-01T00…" — every tick identical
+   for the first ten characters. These helpers render the part that carries meaning. */
+
+const ISO_DATETIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+interface IsoParts {
+  y: string; m: string; d: string;
+  hh?: string; mm?: string; ss?: string;
+  midnight: boolean;
+  firstOfMonth: boolean;
+}
+
+/** Parse an ISO date/datetime string without constructing a Date (no timezone shifts). */
+export function parseIso(v: unknown): IsoParts | null {
+  if (typeof v !== 'string') return null;
+  const m = ISO_DATETIME.exec(v.trim());
+  if (!m) return null;
+  const [, y, mo, d, hh, mi, ss] = m;
+  const midnight = !hh || (hh === '00' && mi === '00' && (ss ?? '00') === '00');
+  return { y, m: mo, d, hh, mm: mi, ss, midnight, firstOfMonth: midnight && d === '01' };
+}
+
+/** A single temporal cell: drop the time part when it carries no information. */
+export function formatDateCell(p: IsoParts): string {
+  if (p.midnight) return `${p.y}-${p.m}-${p.d}`;
+  return `${p.y}-${p.m}-${p.d} ${p.hh}:${p.mm}`;
+}
+
+/**
+ * Build a tick formatter for a temporal axis, choosing granularity from the series as
+ * a whole: month buckets render "Jan 2024", whole days "1 Jan", finer data keeps a
+ * time. Deciding once per axis keeps every tick in the same form.
+ */
+export function makeDateAxisFormatter(values: unknown[]): ((v: unknown) => string) | null {
+  const parsed = values.map(parseIso);
+  const known = parsed.filter((p): p is IsoParts => p !== null);
+  if (known.length === 0 || known.length < values.length) return null; // not a date axis
+
+  const allMonthStarts = known.every((p) => p.firstOfMonth);
+  const allMidnight = known.every((p) => p.midnight);
+  const multiYear = new Set(known.map((p) => p.y)).size > 1;
+
+  return (v: unknown) => {
+    const p = parseIso(v);
+    if (!p) return truncateLabel(v);
+    const mon = MONTHS[Number(p.m) - 1] ?? p.m;
+    if (allMonthStarts) return `${mon} ${p.y}`;
+    if (allMidnight) return multiYear ? `${Number(p.d)} ${mon} ${p.y.slice(2)}` : `${Number(p.d)} ${mon}`;
+    return `${Number(p.d)} ${mon} ${p.hh}:${p.mm}`;
+  };
+}
+
 /** Render any result-set cell as display text. */
 export function formatCell(v: unknown): string {
   if (v === null || v === undefined) return '—';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (isNumeric(v)) return formatNumber(v);
   if (typeof v === 'object') return JSON.stringify(v);
+  const iso = parseIso(v);
+  if (iso) return formatDateCell(iso);
   return String(v);
 }
 

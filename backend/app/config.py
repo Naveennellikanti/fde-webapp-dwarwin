@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     summary_max_tokens: int = 400
     temperature: float = 0.0  # deterministic SQL
     request_timeout_s: float = 60.0
+    # Local inference is far slower than a hosted API: a 3B model on a CPU-only
+    # machine can take a couple of minutes on a wide join, where Groq answers in ~2s.
+    # Sharing one timeout would either cut local runs off mid-generation or leave a
+    # dead hosted call hanging for minutes, so the local path gets its own budget.
+    ollama_timeout_s: float = 300.0
 
     # ---- Pipeline / correctness -----------------------------------------------
     max_sql_retries: int = 3            # self-correction loop
