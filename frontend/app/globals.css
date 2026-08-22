@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    /* Chart surface + ink (recessive grid/axes, text never wears a series color). */
+    --surface-1: #ffffff;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --grid: #e2e8f0;
+
+    /* Categorical series slots — fixed order, never cycled.
+       Validated for the light surface: lightness band, chroma floor,
+       adjacent-pair CVD separation and normal-vision floor all pass.
+       Three slots sit under 3:1 contrast; the relief is the results
+       table rendered beneath every chart. */
+    --series-1: #4f46e5;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+    --series-7: #4a3aa7;
+    --series-8: #e34948;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+
+  * {
+    @apply border-slate-200;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-card;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50
+           px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-600;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-accent-600 px-4 py-2
+           text-sm font-medium text-white shadow-sm transition
+           hover:bg-accent-700 focus-visible:outline focus-visible:outline-2
+           focus-visible:outline-offset-2 focus-visible:outline-accent-600
+           disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium
+           text-slate-600 transition hover:bg-slate-100 hover:text-slate-900
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1
+           focus-visible:outline-accent-600;
+  }
+
+  .code-block {
+    @apply overflow-x-auto whitespace-pre rounded-lg border border-slate-800/10 bg-slate-900
+           p-3 font-mono text-[12.5px] leading-5 text-slate-100;
+  }
+}
+
+/* Restrained scrollbars so the sidebar and thread do not feel heavy. */
+@layer utilities {
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 9999px;
+  }
+  .scroll-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
