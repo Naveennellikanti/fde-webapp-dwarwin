@@ -95,14 +95,29 @@ NL front-end could approach it. The line is open-ended questions. "What needs my
 traces?" has no single SQL answer, and the single-query path could only decline it — which is
 exactly the question a console cannot answer and a chatbot should.
 
-So there is a **bounded investigation path**: for an open-ended question it plans 3–5 probe queries,
-runs each through the *same* guardrail and executor as any query, and synthesises findings across
-them — each finding linked to the probe (SQL + rows) that produced it, so the reasoning is auditable
-end to end. It is agentic in behaviour but not in structure: exactly **two model calls** regardless
-of probe count, a hard cap on probes, and no loop that decides to keep going — the shape that
-produces runaway bills is deliberately absent. On a traces file it correctly surfaces the
+So there is a **bounded investigation path**: for an open-ended question it plans 1–3 probe queries
+(as few as the question needs, hard-capped at three), runs each through the *same* guardrail and
+executor as any query, and synthesises findings across them — each finding linked to the probe
+(SQL + rows) that produced it, so the reasoning is auditable end to end. It is agentic in behaviour
+but not in structure: exactly **two model calls** regardless of probe count, a hard cap on probes,
+and no loop that decides to keep going — the shape that produces runaway bills is deliberately
+absent. The two calls are itemised in the UI (plan vs synthesis tokens), so the cost reads as
+bounded work rather than one opaque number. On a traces file it correctly surfaces the
 error-heavy service and the span-count outlier; a figure a probe did not return is dropped rather
 than shown.
+
+Two decisions sit underneath that. **Which path a question takes is classified by the model, not
+a keyword list** — "is this data healthy?" routes to investigation without matching any hard-coded
+phrase — with a lexical fast-path that short-circuits the obvious cases so a plain lookup pays for
+no extra call. The earlier keyword router was the real hard-coding, and replacing it was the honest
+fix. And where a data-quality problem is found, the app can **fix it, not just report it**: a
+cleaning agent proposes deterministic transforms (cast numbers-stored-as-text, drop all-empty
+columns, dedupe) derived from the quality profile — never model-generated code, because a cast is a
+rule and a rule is reproducible where a model is not. Nothing changes until each fix is approved
+with its measured impact, the whole clean runs as one guarded `SELECT`, and the source is
+snapshotted so undo always restores it. Model-*written* Python would have reintroduced the
+arbitrary-execution surface the guardrail exists to remove; the model's place in cleaning is the
+semantic normalisation a rule cannot know, left as a documented extension.
 
 ## What I'd build next
 

@@ -6,6 +6,11 @@ The app answers with a number, a chart, and **the exact SQL it ran** so you can 
 Built for the Forward Deployed Engineer take-home. Runs entirely on **open-source models**
 — locally via Ollama, or hosted via Groq.
 
+**Live demo:** <https://fde-webapp-dwarwin.vercel.app> — open the gear icon and paste a free
+[Groq key](https://console.groq.com) under *Your Groq API key* (verified, kept in memory for
+your session only). The backend runs on a free tier that sleeps when idle, so the first
+request after a lull takes ~50 s to wake.
+
 ---
 
 ## The core idea: the model writes SQL, it never does the math
@@ -47,9 +52,13 @@ Most questions map to one SQL query. Open-ended ones ("what needs my attention?"
 unusual?", "give me an overview") do not — an analyst answers them by running several probes and
 reading them together. Those questions are routed to a **bounded investigation**:
 
-- Plans 3–5 probe queries, runs each through the *same* guardrail and executor as any query.
+- Plans **1–3 probe queries** — the planner uses as few as the question needs (a focused
+  question may run one; a broad sweep uses up to the cap of three) — and runs each through
+  the *same* guardrail and executor as any query.
 - **Exactly two model calls** (plan + synthesise) regardless of probe count — agentic in
-  behaviour, not an open-ended loop. Probe count, tokens and per-session messages are all capped.
+  behaviour, not an open-ended loop. Probe count, tokens and per-session messages are all
+  capped, and the two calls are itemised in the UI (`plan 1,690 + synthesis 1,463 = 3,153
+  tokens`) so the cost reads as bounded, named work rather than one opaque figure.
 - Each finding links to the probe (SQL + rows) that produced it, so the reasoning is auditable
   end to end. A figure no probe returned is dropped rather than shown.
 
@@ -113,6 +122,19 @@ queries, and shows its working.
 16. **An eval suite, not a vibe** — `evals/` holds a labelled question set whose expected
     answers are computed in pandas from the same fixtures. Accuracy is a number that
     regresses visibly when a prompt changes, and CI gates on it.
+17. **Intent routing with the model, not keywords** — whether a question is a lookup or an
+    open-ended investigation is classified by the model against the schema, so any phrasing
+    generalises ("is this data healthy?" routes to investigation without matching a keyword
+    list). A lexical fast-path still short-circuits the obvious cases, so a plain lookup pays
+    for no extra call.
+18. **A data-cleaning agent (propose → approve → apply → undo)** — quality problems are not
+    just reported, they can be fixed. The fixes are *deterministic* from the quality profile
+    (cast numbers-stored-as-text, drop all-empty columns, dedupe rows), never model-generated
+    code — a cast is a rule, and a rule is reproducible where a model is not. Nothing changes
+    until you approve each fix (shown with its measured impact); the whole clean runs as one
+    `SELECT` through the same guardrail, and the source is snapshotted so undo always restores
+    it. The model's place here is *semantic* normalisation a rule cannot know, left as a
+    documented extension so a hallucinated transform can never ride in with the safe ones.
 
 ---
 
@@ -129,6 +151,9 @@ backend/app/
 ├── intelligence/       question in, SQL out
 │   ├── relationship_detector.py  cross-file join keys (name + dtype + value overlap)
 │   ├── ambiguity_detector.py     underspecified questions: assume-and-state, or ask
+│   ├── intent.py                 routes lookup vs investigation (LLM + lexical fast-path)
+│   ├── investigator.py           bounded multi-query investigation (plan → probe → synthesise)
+│   ├── cleaner.py                deterministic cleaning proposals (propose → apply → undo)
 │   ├── sql_generator.py          native or LangChain generation path
 │   ├── prompts.py
 │   └── llm/                      provider abstraction (Ollama / Groq)
@@ -150,6 +175,28 @@ backend/app/
 A question travels down that list in order: **ingestion** has already run, **intelligence**
 turns the question into SQL, **analytics** validates and executes it, **validation** decides
 what caveats the answer carries, and **visualization** picks how to draw it.
+
+The frontend is a single Next.js page composed of focused components:
+
+```
+frontend/
+├── app/
+│   ├── page.tsx                the one screen: sidebar + conversation thread
+│   └── layout.tsx             fonts (Inter / JetBrains Mono via next/font), globals
+├── components/
+│   ├── Sidebar.tsx             uploads, tables, detected joins, quality panel
+│   ├── AskBox.tsx              the question input
+│   ├── AnswerCard.tsx          a single-query answer: prose + chart + table + SQL
+│   ├── InvestigationCard.tsx   findings + auditable probes + itemised token cost
+│   ├── CleaningPanel.tsx       propose → approve → apply cleaning modal
+│   ├── QualityPanel.tsx        data-quality findings, with "Review & clean"
+│   ├── SettingsPanel.tsx       backend, privacy, bring-your-own key, read-only limits
+│   ├── ChartView.tsx           Recharts renderer for the chosen chart spec
+│   └── …                       DataTable, SqlDisclosure, AnswerMeta, TableCard, etc.
+└── lib/
+    ├── api.ts                  typed client for the endpoints below
+    └── types.ts               request/response types mirroring the backend schema
+```
 
 ---
 
@@ -242,6 +289,37 @@ GROQ_API_KEY=gsk_...
 
 ---
 
+## Configuration
+
+All configuration is environment variables (backend reads `.env`; see
+[`.env.example`](backend/.env.example)). Nothing is hard-coded — the same image runs local or
+hosted on a flag. The common ones:
+
+| Variable | Default | What it controls |
+|---|---|---|
+| `LLM_BACKEND` | `auto` | `auto` (local first, else hosted) · `ollama` · `groq` |
+| `OLLAMA_MODEL` | `qwen2.5-coder:3b` | Local model; `qwen2.5-coder:7b` is more accurate with a GPU |
+| `GROQ_API_KEY` | — | Hosted key. Leave empty for a **bring-your-own-key** public instance |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Any OpenAI-compatible model Groq serves |
+| `SQL_GENERATOR` | `native` | `native` provider call, or `langchain` LCEL chain (identical results) |
+| `SCHEMA_ONLY` | `false` | `true` sends **no** data values — column names + dtypes only |
+| `SAMPLE_ROWS` | `3` | PII-masked sample rows per table in the prompt (ignored if `SCHEMA_ONLY`) |
+| `MAX_SQL_RETRIES` | `3` | Self-correction loop bound |
+| `RESULT_ROW_CAP` | `5000` | Max rows returned to the client |
+| `SESSION_TOKEN_BUDGET` | `2000000` | Hard per-session token stop (cost guard) |
+| `MAX_MESSAGES_PER_SESSION` | `100` | Hard per-session question count (cost guard) |
+| `MAX_UPLOAD_MB` | `50` | Per-file upload limit (25 on the hosted free tier) |
+| `SESSION_TTL_MINUTES` | `120` | Idle session lifetime (30 on the hosted free tier) |
+| `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated origins allowed to call the API, no trailing slash |
+
+Cost and safety limits are **server-side only** and shown read-only in the UI: a user who
+could raise their own token/message cap on a shared instance would defeat the guard, so
+those belong to the administrator. Investigation tunables (`MAX_INVESTIGATION_PROBES`,
+`LLM_INTENT_ROUTING`, and the per-call token budgets) live in
+[`config.py`](backend/app/config.py) with the reasoning for each default inline.
+
+---
+
 ## Deploying
 
 Step-by-step instructions, including the free-tier gotchas, are in
@@ -285,8 +363,10 @@ never visible to another.
 ```bash
 cd backend
 .venv/Scripts/python.exe tests/test_pipeline.py       # 16
-.venv/Scripts/python.exe tests/test_session_key.py    # 6
+.venv/Scripts/python.exe tests/test_session_key.py    # 8
 .venv/Scripts/python.exe tests/test_validation.py     # 17
+.venv/Scripts/python.exe tests/test_investigator.py   # 7
+.venv/Scripts/python.exe tests/test_cleaning.py       # 8
 ```
 
 ### Eval suite
@@ -302,16 +382,23 @@ pandas from the same fixtures, so the suite cannot drift into blessing a wrong a
 **16/16 against `openai/gpt-oss-120b`.** `--mock` swaps in scripted SQL to exercise the
 pipeline without a model, which is what CI runs on every push (`--min-accuracy 1.0`).
 
-41 tests in three suites. `test_pipeline.py` (15) covers the parts that must be right
-regardless of which model is plugged in; `test_session_key.py` (8) drives the real app over
-HTTP to assert the bring-your-own-key security properties and table removal; `test_validation.py` (17) covers
-data quality, result validation, summary verification, confidence and ambiguity. Between them:
-guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
-retry exhaustion, cross-file joins, chart selection, bounded multi-turn context,
-schema-only privacy mode, PII masking, native-vs-LangChain parity, SQL extraction across
-model output styles (fenced, `<think>` blocks, prose preamble), and that provider errors
-always name a cause. They use a scripted mock LLM, so they are deterministic and need no
-API key — a reviewer can verify correctness before configuring any model.
+56 tests in five suites, all deterministic and **needing no API key** (a scripted mock LLM),
+so a reviewer can verify correctness before configuring any model:
+
+- `test_pipeline.py` (16) — the parts that must be right regardless of which model is plugged
+  in: guardrails (12 blocked / 3 allowed), the self-correction retry loop, honest failure,
+  retry exhaustion, cross-file joins, chart selection, bounded multi-turn context, schema-only
+  privacy mode, PII masking, native-vs-LangChain parity, and SQL extraction across model output
+  styles (fenced, `<think>` blocks, prose preamble).
+- `test_session_key.py` (8) — drives the real app over HTTP to assert the bring-your-own-key
+  security properties (no echo, no cross-session leak, rejected keys not stored) and table removal.
+- `test_validation.py` (17) — data quality, result validation, summary verification, confidence
+  and ambiguity, and that provider errors always name a cause.
+- `test_investigator.py` (7) — investigation stays bounded (probe cap, exactly two model calls),
+  routes lookup vs open-ended correctly, blocks unsafe probes, salvages truncated plans, and
+  degrades honestly when synthesis is unparseable.
+- `test_cleaning.py` (8) — proposals are deterministic from the quality profile, refuse to drop
+  every column, run through the guardrail, and undo restores the snapshot exactly.
 
 The happy-path test asserts the returned numbers **equal a pandas ground truth** — the
 point being that correctness comes from the engine, not the model.
@@ -326,16 +413,20 @@ all eight acceptance-criteria questions, the same question answered identically 
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /session` | Start a session |
-| `POST /upload` | Multipart upload (`session_id` + repeated `files`) → schema + detected joins |
-| `GET /schema/{id}` | Current schema |
-| `POST /ask` | `{session_id, question}` → answer, SQL, rows, chart spec, attempts |
-| `GET /config` | Active model backend + privacy settings (never returns secrets) |
+| `GET /health` | Liveness probe → `{"status":"ok"}` |
+| `GET /config` | Active backend, privacy settings, and read-only session limits (never returns secrets) |
 | `PUT /settings` | Change non-secret runtime settings (privacy mode, model backend) |
-| `DELETE /session/{id}/table/{name}` | Remove one loaded table; returns the refreshed schema (joins and quality recomputed) |
+| `POST /session` | Start a session |
+| `DELETE /session/{id}` | Destroy session and its data |
 | `PUT /session/{id}/key` | Attach a bring-your-own API key to **one session** (verified first; reports `has_key`, never the key) |
 | `DELETE /session/{id}/key` | Forget that session's key and fall back to the server environment |
-| `DELETE /session/{id}` | Destroy session and its data |
+| `POST /upload` | Multipart upload (`session_id` + repeated `files`) → schema, detected joins, quality profile |
+| `DELETE /session/{id}/table/{name}` | Remove one loaded table; returns the refreshed schema (joins and quality recomputed) |
+| `GET /session/{id}/cleaning/{table}` | Proposed deterministic fixes for a table, each with its measured impact |
+| `POST /session/{id}/cleaning/{table}/apply` | Apply approved fixes (one guarded `SELECT`); snapshots the source first |
+| `POST /session/{id}/cleaning/{table}/undo` | Restore the pre-clean snapshot |
+| `GET /schema/{id}` | Current schema |
+| `POST /ask` | `{session_id, question}` → answer, SQL, rows, chart spec, attempts (or investigation findings) |
 
 ### Supported file types
 
@@ -395,6 +486,7 @@ cross-session leak, rejected keys not stored.
 
 ## What I'd build next
 
-Streaming answers, a saved-question/dashboard view, a proper eval suite run in CI against a
-labelled question set, semantic-embedding schema retrieval (the current one is lexical), and
-row-level access control for multi-tenant use.
+Streaming answers, a saved-question/dashboard view, semantic-embedding schema retrieval (the
+current one is lexical), LLM-suggested *semantic* cleaning (categorical normalisation) as
+approval-gated SQL on top of today's deterministic fixes, and row-level access control for
+multi-tenant use.
