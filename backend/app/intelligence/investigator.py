@@ -78,6 +78,11 @@ class Investigation:
     findings: list[Finding] = field(default_factory=list)
     probes: list[Probe] = field(default_factory=list)
     tokens_used: int = 0
+    # The two model calls, itemised. Kept apart from the total so the UI can show where
+    # an investigation's cost actually goes (planning vs synthesising) rather than one
+    # opaque number that reads as "expensive" — the split makes it read as "bounded".
+    plan_tokens: int = 0
+    synthesis_tokens: int = 0
     backend: str | None = None
     # True when the model's synthesis could not be parsed and the findings below are
     # deterministic descriptions of each probe instead of conclusions drawn across them.
@@ -97,7 +102,10 @@ Rules:
 1. Output ONLY a JSON array. No prose, no markdown fences.
 2. Each element: {"goal": "<what this probe establishes, one short phrase>",
                   "sql": "<one DuckDB SELECT>"}
-3. Between 3 and 5 probes. Fewer is better if fewer suffice.
+3. Use AS FEW probes as the question genuinely needs — between 1 and 3. A focused
+   question ("which service errors most?") may need only ONE probe; use 3 only for a
+   broad sweep ("what should I know about this data?"). Each probe costs a query and
+   makes the report longer, so do not pad the plan to hit a number.
 4. Every probe must be a single read-only SELECT. CTEs are fine. Never INSERT/UPDATE/
    DELETE/DROP/CREATE/ATTACH/COPY/INSTALL/PRAGMA, and never read files.
 5. Use ONLY tables and columns from the schema. Quote identifiers with double quotes.
@@ -228,6 +236,7 @@ async def investigate(
         [{"role": "user", "content": plan_prompt}],
         settings.investigation_plan_tokens,
     )
+    result.plan_tokens = completion.tokens_used
     result.tokens_used += completion.tokens_used
     result.backend = completion.backend
 
@@ -277,6 +286,7 @@ async def investigate(
         [{"role": "user", "content": synth_prompt}],
         settings.investigation_synthesis_tokens,
     )
+    result.synthesis_tokens = synth.tokens_used
     result.tokens_used += synth.tokens_used
 
     for item in _extract_json_array(synth.text):

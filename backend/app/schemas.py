@@ -151,6 +151,11 @@ class AskResponse(BaseModel):
     attempts: list[SqlAttempt] = Field(default_factory=list)
     backend_used: Optional[str] = None
     tokens_used: int = 0
+    # For an investigation, the two model calls itemised (plan + synthesis). Lets the UI
+    # show the cost as bounded, named work rather than one large opaque figure. Null on a
+    # single-query answer, which is one call and needs no breakdown.
+    plan_tokens: Optional[int] = None
+    synthesis_tokens: Optional[int] = None
     truncated: bool = False
 
     # ---- validation & transparency -------------------------------------------

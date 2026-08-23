@@ -392,6 +392,8 @@ def _investigation_response(
         attempts=[],
         backend_used=inv.backend,
         tokens_used=inv.tokens_used,
+        plan_tokens=inv.plan_tokens,
+        synthesis_tokens=inv.synthesis_tokens,
         caveats=caveats,
         assumptions=assumptions,
         confidence=confidence.level,

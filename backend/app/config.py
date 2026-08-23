@@ -75,7 +75,11 @@ class Settings(BaseSettings):
     # to the lexical guess every time, defeating the point. 200 leaves room for the
     # reasoning plus the word.
     intent_max_tokens: int = 200
-    max_investigation_probes: int = 5
+    # The hard ceiling on probes per investigation. The planner is told to use as few as
+    # the question needs (a focused question may plan just one), so this is the cap, not
+    # the target — most investigations come in under it. Lower cap = smaller synthesis
+    # prompt = cheaper, which is why it is 3 rather than 5.
+    max_investigation_probes: int = 3
     investigation_probe_rows: int = 20      # rows kept per probe and shown to the user
     # Rows actually sent to the synthesis step. Fewer than the user sees on purpose: the
     # model needs enough to judge shape and spot an outlier, and a longer prompt made it

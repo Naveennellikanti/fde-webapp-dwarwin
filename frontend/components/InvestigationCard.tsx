@@ -69,11 +69,32 @@ export default function InvestigationCard({ res }: { res: AskResponse }) {
         {res.confidence && (
           <ConfidenceBadge level={res.confidence} reasons={res.confidence_reasons} />
         )}
-        <p className="font-mono text-[11px] text-slate-400">
-          {[res.backend_used, `${formatNumber(res.tokens_used)} tokens`].filter(Boolean).join(' · ')}
-        </p>
+        <TokenBreakdown res={res} />
       </div>
     </article>
+  );
+}
+
+/**
+ * The cost, itemised. An investigation is exactly two model calls — plan, then
+ * synthesise — so showing both plus the total reframes the number: not "why did this
+ * cost 6k tokens?" but "two bounded calls, here is each". When the split is missing
+ * (older responses) it falls back to the single total.
+ */
+function TokenBreakdown({ res }: { res: AskResponse }) {
+  const hasSplit = res.plan_tokens != null && res.synthesis_tokens != null;
+  const detail = hasSplit
+    ? `plan ${formatNumber(res.plan_tokens!)} + synthesis ${formatNumber(res.synthesis_tokens!)} = `
+    : '';
+  return (
+    <p
+      className="font-mono text-[11px] text-slate-400"
+      title={hasSplit ? '2 model calls: one to plan the probes, one to read them back' : undefined}
+    >
+      {[res.backend_used, `${detail}${formatNumber(res.tokens_used)} tokens`]
+        .filter(Boolean)
+        .join(' · ')}
+    </p>
   );
 }
 

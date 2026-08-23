@@ -113,6 +113,9 @@ export interface AskResponse {
   attempts: SqlAttempt[];
   backend_used: string | null;
   tokens_used: number;
+  /** Investigation only: the two model calls itemised. Null on a single-query answer. */
+  plan_tokens: number | null;
+  synthesis_tokens: number | null;
   truncated: boolean;
   /** Things the user should know about this answer without reading the SQL. */
   caveats: string[];
