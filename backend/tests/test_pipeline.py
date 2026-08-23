@@ -38,6 +38,10 @@ class ScriptedProvider(LLMProvider):
 
     async def complete(self, system, messages, max_tokens):  # noqa: ANN001
         self.calls.append(messages)
+        # Intent routing now precedes SQL generation; answer "lookup" without spending a
+        # scripted SQL, so these tests exercise the single-query path they are about.
+        if "classify a data question" in system.lower():
+            return Completion(text="lookup", tokens_used=2, backend="mock")
         if "explain analytical query results" in system:
             return Completion(text=self.summary, tokens_used=10, backend="mock")
         text = self.sql_script.pop(0) if self.sql_script else "SELECT 1"

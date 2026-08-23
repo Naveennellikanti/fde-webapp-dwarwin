@@ -102,10 +102,28 @@ class TableQualityInfo(BaseModel):
     issues: list[QualityIssueInfo] = Field(default_factory=list)
 
 
+class ProbeInfo(BaseModel):
+    """One query run during an investigation, kept so any claim can be checked."""
+    goal: str
+    sql: str
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class FindingInfo(BaseModel):
+    headline: str
+    detail: str = ""
+    severity: Literal["notable", "watch", "ok"] = "notable"
+    evidence: Optional[int] = None
+
+
 class AskResponse(BaseModel):
     session_id: str
     question: str
-    status: Literal["ok", "cannot_answer", "empty", "error", "needs_clarification"]
+    status: Literal[
+        "ok", "cannot_answer", "empty", "error", "needs_clarification", "investigation"
+    ]
     answer: str
     sql: Optional[str] = None
     columns: list[str] = Field(default_factory=list)
@@ -127,3 +145,9 @@ class AskResponse(BaseModel):
     confidence: Optional[Literal["high", "medium", "low"]] = None
     confidence_score: Optional[float] = None
     confidence_reasons: list[str] = Field(default_factory=list)
+
+    # ---- investigation (status == "investigation") ----------------------------
+    # Several probes were run and read together; each finding points at the probe it
+    # came from so the reader can verify rather than trust.
+    findings: list[FindingInfo] = Field(default_factory=list)
+    probes: list[ProbeInfo] = Field(default_factory=list)

@@ -139,7 +139,27 @@ flips it to selectable, and the next question returns `1,636,950.46` correctly. 
 invalid key is rejected with `400` and not stored. The input is cleared once the server holds
 the key, so it does not linger in the component tree.
 
-## 9. Presentation
+## 9. Investigation — the multi-query path
+
+A single query cannot answer "what needs my attention?"; the single-query pipeline could
+only decline it. Uploaded a 210-row traces file (`ci_name`, `levels`, `num_spans`,
+`services`, timestamps) with a known error concentration, and asked exactly that.
+
+| | Result |
+|---|---|
+| Status | `investigation` (not `cannot_answer`) |
+| Probes planned & run | 5, each through the same guardrail |
+| Model calls | 2 (plan + synthesise), regardless of probe count |
+| Tokens | ~3,900 |
+| Findings | error levels outnumber info+warn (61 vs 104/45); payment-svc-01 error burst; gw highest error count (16 vs 13, 12) — each linked to its probe |
+| Auditability | every finding cites a probe; every probe shows its SQL and rows |
+
+Bounds verified in `tests/test_investigator.py`: exactly two model calls, probe count
+capped, destructive and filesystem probes blocked by the same guardrail, unparseable
+synthesis degrades to probe descriptions (flagged, never silent), a truncated plan is
+salvaged rather than discarded.
+
+## 10. Presentation
 
 - Temporal axes label by granularity (`Jan 2024`), not truncated ISO strings.
 - One magnitude unit per axis (`0 · 70k · 140k · 210k · 280k`), never mixed.

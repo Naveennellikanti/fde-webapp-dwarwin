@@ -79,16 +79,43 @@ tools, LangGraph's explicit state machine would be the right next call.
   a figure. Refusing well is a feature.
 - **Type coercion at ingest.** Testing revealed dates were landing as `VARCHAR`, silently breaking
   every trend question at the binder. Date-like columns are now coerced to real timestamps.
+- **A validation layer, because correctness has more than one failure mode.** Data quality is
+  profiled at upload (nulls, duplicates, numbers-stored-as-text) and the serious findings go into
+  the prompt. Results are checked against the question (an `AVG` over a 90%-empty column, a `LIMIT`
+  the user never asked for). And — found by running the small local model — the *prose* is verified:
+  `qwen2.5-coder:3b` summarised `177,199` as `$1,771,990`, off by 10×, so every figure in the
+  answer is now matched back to a returned value and a mismatch is replaced with a deterministic one.
+  Each answer carries a confidence level derived from what actually happened, not the model's
+  opinion of itself.
+
+## The part that makes it more than a SQL bot
+
+Everything above is a trust layer around *single-query* Q&A — real, but a good SQL console with an
+NL front-end could approach it. The line is open-ended questions. "What needs my attention in these
+traces?" has no single SQL answer, and the single-query path could only decline it — which is
+exactly the question a console cannot answer and a chatbot should.
+
+So there is a **bounded investigation path**: for an open-ended question it plans 3–5 probe queries,
+runs each through the *same* guardrail and executor as any query, and synthesises findings across
+them — each finding linked to the probe (SQL + rows) that produced it, so the reasoning is auditable
+end to end. It is agentic in behaviour but not in structure: exactly **two model calls** regardless
+of probe count, a hard cap on probes, and no loop that decides to keep going — the shape that
+produces runaway bills is deliberately absent. On a traces file it correctly surfaces the
+error-heavy service and the span-count outlier; a figure a probe did not return is dropped rather
+than shown.
 
 ## What I'd build next
 
-1. **An eval suite in CI** — a labelled question set with expected answers, so SQL-generation
-   accuracy becomes a tracked regression metric rather than a vibe.
-2. **Streaming** the SQL and explanation for perceived latency.
-3. **Redis-backed sessions + file-backed DuckDB** to lift the single-worker constraint.
-4. **Semantic schema retrieval** — the current relevance matching is lexical; embeddings would
+1. **Streaming** the probes and explanation, so an investigation shows progress rather than a spinner.
+2. **Redis-backed sessions + file-backed DuckDB** to lift the single-worker constraint.
+3. **Semantic schema retrieval** — the current relevance matching is lexical; embeddings would
    handle synonyms ("staff" vs "employees").
+4. **A charting step in investigations** — findings are currently text + tables; the probes already
+   have the shape a chart needs.
 5. **Row-level access control** for genuine multi-tenant use, and a saved-question dashboard.
+
+*(The eval suite, listed here in an earlier draft, is now built: `evals/` scores a labelled set in
+CI and gates on it.)*
 
 ## Honest limitations
 

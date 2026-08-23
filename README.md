@@ -41,6 +41,21 @@ Two consequences that matter:
 | **Visual insights** | The chart type is chosen from the *shape* of the result set (KPI / bar / line / scatter / table) — no extra model call. |
 | **Delta solutioning** | See below. |
 
+### Investigation mode — beyond single-query Q&A
+
+Most questions map to one SQL query. Open-ended ones ("what needs my attention?", "anything
+unusual?", "give me an overview") do not — an analyst answers them by running several probes and
+reading them together. Those questions are routed to a **bounded investigation**:
+
+- Plans 3–5 probe queries, runs each through the *same* guardrail and executor as any query.
+- **Exactly two model calls** (plan + synthesise) regardless of probe count — agentic in
+  behaviour, not an open-ended loop. Probe count, tokens and per-session messages are all capped.
+- Each finding links to the probe (SQL + rows) that produced it, so the reasoning is auditable
+  end to end. A figure no probe returned is dropped rather than shown.
+
+This is the line between this app and a SQL console with an NL front-end: it reasons across
+queries, and shows its working.
+
 ### Delta solutioning — the engineering on top of "call an LLM"
 
 1. **Self-correcting SQL loop** — when generated SQL fails, the DuckDB error is fed back

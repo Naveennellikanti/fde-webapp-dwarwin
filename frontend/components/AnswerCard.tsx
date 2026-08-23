@@ -8,6 +8,7 @@ import DataTable from './DataTable';
 import SqlDisclosure from './SqlDisclosure';
 import AttemptsDisclosure from './AttemptsDisclosure';
 import { AnswerNotices, ClarificationCard, ConfidenceBadge } from './AnswerMeta';
+import InvestigationCard from './InvestigationCard';
 
 export default function AnswerCard({
   res,
@@ -60,6 +61,10 @@ export default function AnswerCard({
 
   if (status === 'needs_clarification') {
     return <ClarificationCard res={res} onChoose={(q) => onAsk?.(q)} />;
+  }
+
+  if (status === 'investigation') {
+    return <InvestigationCard res={res} />;
   }
 
   // status === "ok"

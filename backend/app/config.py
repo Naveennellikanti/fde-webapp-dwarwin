@@ -61,6 +61,29 @@ class Settings(BaseSettings):
     sample_rows: int = 3
     schema_only: bool = False
 
+    # ---- Investigation mode ----------------------------------------------------
+    # Open-ended questions ("what needs my attention?") need several queries. Cost is
+    # fixed at two model calls regardless of probe count, and the probe budget caps how
+    # much SQL execution one question can trigger.
+    # Route intent with the model (generalises to any phrasing) rather than a keyword
+    # list. A lexical fast-path still short-circuits the obvious cases, so a plain lookup
+    # does not pay for a classification call. Set false to force lexical-only routing.
+    llm_intent_routing: bool = True
+    # A reasoning model (gpt-oss, Qwen3) spends its output budget on an internal <think>
+    # pass before the one-word answer. 64 tokens is consumed entirely by that and returns
+    # an empty string — verified on gpt-oss-120b — so the classifier silently fell back
+    # to the lexical guess every time, defeating the point. 200 leaves room for the
+    # reasoning plus the word.
+    intent_max_tokens: int = 200
+    max_investigation_probes: int = 5
+    investigation_probe_rows: int = 20      # rows kept per probe and shown to the user
+    # Rows actually sent to the synthesis step. Fewer than the user sees on purpose: the
+    # model needs enough to judge shape and spot an outlier, and a longer prompt made it
+    # write longer `detail` fields that then hit the output cap and truncated mid-object.
+    investigation_synthesis_rows: int = 8
+    investigation_plan_tokens: int = 1600
+    investigation_synthesis_tokens: int = 1400
+
     # ---- Multi-turn (bounded so token cost never grows unbounded) --------------
     max_history_turns: int = 4          # rolling window of prior Q&A kept in context
 
@@ -69,7 +92,12 @@ class Settings(BaseSettings):
     schema_rag_column_threshold: int = 40   # retrieve relevant columns above this many/table
 
     # ---- Cost guard ------------------------------------------------------------
+    # Two independent ceilings per session, whichever is hit first. Tokens bound spend;
+    # message count bounds a script or a stuck user hammering the endpoint. Investigation
+    # questions cost several times a single query, so both matter more now than they did
+    # when every question was one model call.
     session_token_budget: int = 2_000_000   # hard stop per session
+    max_messages_per_session: int = 100
 
     # ---- Uploads ---------------------------------------------------------------
     max_upload_mb: int = 50

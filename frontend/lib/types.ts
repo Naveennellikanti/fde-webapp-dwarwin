@@ -56,7 +56,23 @@ export type AskStatus =
   | 'cannot_answer'
   | 'empty'
   | 'error'
-  | 'needs_clarification';
+  | 'needs_clarification'
+  | 'investigation';
+
+export interface FindingInfo {
+  headline: string;
+  detail: string;
+  severity: 'notable' | 'watch' | 'ok';
+  evidence: number | null;
+}
+
+export interface ProbeInfo {
+  goal: string;
+  sql: string;
+  columns: string[];
+  rows: Row[];
+  error: string | null;
+}
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
@@ -108,6 +124,9 @@ export interface AskResponse {
   confidence: ConfidenceLevel | null;
   confidence_score: number | null;
   confidence_reasons: string[];
+  /** Populated when status is 'investigation'. */
+  findings: FindingInfo[];
+  probes: ProbeInfo[];
 }
 
 export type LlmBackend = 'auto' | 'ollama' | 'groq';

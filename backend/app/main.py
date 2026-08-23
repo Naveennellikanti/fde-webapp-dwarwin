@@ -256,12 +256,22 @@ async def ask(req: AskRequest) -> AskResponse:
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
-    # Cost guard: hard stop so a runaway session can never rack up spend.
+    # Cost guard: two ceilings, whichever trips first. A runaway session can rack up
+    # spend (tokens) or just hammer the endpoint (message count); both are capped.
     if session.tokens_used >= settings.session_token_budget:
         raise HTTPException(
             status_code=429,
             detail="This session reached its token budget. Start a new session.",
         )
+    if session.message_count >= settings.max_messages_per_session:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"This session reached its limit of {settings.max_messages_per_session} "
+                f"questions. Start a new session."
+            ),
+        )
+    session.message_count += 1
 
     eff = effective_settings(settings)
     # A session-scoped key takes precedence over the server environment, so a reviewer

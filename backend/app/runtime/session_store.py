@@ -31,6 +31,7 @@ class Session:
     last_seen: float
     history: list[Turn] = field(default_factory=list)
     tokens_used: int = 0
+    message_count: int = 0
     # Profiled once per upload and reused for every question, like the schema and the
     # join map — the checks are aggregate scans, so re-running them per question would
     # be pure waste.

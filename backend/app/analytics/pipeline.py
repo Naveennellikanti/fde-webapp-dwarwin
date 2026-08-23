@@ -22,11 +22,17 @@ from app.intelligence.relationship_detector import detect_joins
 from app.ingestion.engine import DataEngine
 from app.analytics.query_validator import GuardrailError, validate_select
 from app.intelligence.llm.base import LLMProvider
-from app.schemas import AskResponse, ChartSpec, SqlAttempt
+from app.schemas import AskResponse, ChartSpec, FindingInfo, ProbeInfo, SqlAttempt
 from app.visualization.chart_builder import select_chart
 from app.intelligence.prompts import CANNOT_ANSWER, SQL_SYSTEM, SUMMARY_SYSTEM
 from app.intelligence.sql_generator import SqlGenerator, build_sql_generator
 from app.intelligence import ambiguity_detector
+from app.intelligence.intent import classify as classify_intent
+from app.intelligence.investigator import (
+    Investigation,
+    all_probe_rows,
+    investigate,
+)
 from app.validation.confidence import score_answer
 from app.validation.data_quality import TableQuality, quality_notes_for_prompt
 from app.validation.result_validator import validate_result
@@ -128,13 +134,32 @@ async def answer_question(
             assumptions=assumptions, attempts=[], tokens_used=0,
         )
 
+    quality_notes = quality_notes_for_prompt(quality or [])
+
+    # ---- 1b. Open-ended questions need several queries, not one ---------------
+    # "What needs my attention?" has no single SQL answer, and the single-query path
+    # could only decline it — which is exactly the question a SQL console cannot answer
+    # and this app should. Two model calls, a capped number of probes, every probe
+    # through the same guardrail.
+    intent, _how = await classify_intent(question, schema_text, provider, settings)
+    if intent == "investigate":
+        inv = await investigate(
+            engine=engine, provider=provider, settings=settings, question=question,
+            schema_text=schema_text, quality_notes=quality_notes,
+        )
+        if inv.findings:
+            return _investigation_response(
+                session_id, question, inv, assumptions, schema_was_narrowed
+            )
+        # No usable findings (planning failed, or every probe errored): fall through
+        # and let the single-query path try, rather than returning nothing.
+
     history_text = _history_block(history, settings.max_history_turns)
     base_prompt = f"SCHEMA:\n{schema_text}\n"
 
     # Serious quality problems change what a correct answer looks like, so the model is
     # told about them — an average over a 60%-empty column deserves a caveat in the
     # prose, not silence.
-    quality_notes = quality_notes_for_prompt(quality or [])
     if quality_notes:
         base_prompt += f"\n{quality_notes}\n"
     ambiguity_notes = ambiguity_detector.prompt_addendum(ambiguities)
@@ -287,3 +312,89 @@ def _fallback_answer(columns: list[str], rows: list[dict[str, Any]]) -> str:
     if len(rows) == 1 and len(columns) == 1:
         return f"{columns[0].replace('_', ' ').title()}: {rows[0][columns[0]]}"
     return f"Returned {len(rows)} row(s) across {len(columns)} column(s). See the table below."
+
+
+def _investigation_response(
+    session_id: str,
+    question: str,
+    inv: Investigation,
+    assumptions: list[str],
+    schema_was_narrowed: bool,
+) -> AskResponse:
+    """Turn an investigation into a response, checking its numbers first.
+
+    The same rule as a single answer: a figure in the prose must exist in the rows. Here
+    the rows are the union of every probe's output, so a finding that quotes a number no
+    probe returned is dropped rather than shown — a fabricated insight is worse than a
+    missing one, because it reads as analysis.
+    """
+    evidence_rows = all_probe_rows(inv.probes)
+    kept: list[FindingInfo] = []
+    dropped = 0
+    for f in inv.findings:
+        check = check_summary(f"{f.headline} {f.detail}", evidence_rows)
+        if check.ok:
+            kept.append(FindingInfo(
+                headline=f.headline, detail=f.detail,
+                severity=f.severity, evidence=f.evidence,
+            ))
+        else:
+            dropped += 1
+
+    caveats: list[str] = []
+    if dropped:
+        caveats.append(
+            f"{dropped} finding{'s' if dropped > 1 else ''} quoted figures that no probe "
+            f"returned and {'were' if dropped > 1 else 'was'} discarded."
+        )
+    if inv.synthesis_failed:
+        caveats.append(
+            "The model did not produce a readable summary of these probes, so each "
+            "finding below describes one probe's result directly rather than drawing a "
+            "conclusion across them."
+        )
+    failed = [p for p in inv.probes if not p.ok]
+    if failed:
+        caveats.append(
+            f"{len(failed)} of {len(inv.probes)} probes did not run, so this view is "
+            f"partial."
+        )
+
+    # The prose answer is just the headlines; the structured findings carry the detail,
+    # so this stays short for clients that only render `answer`.
+    headline = kept[0].headline if kept else "The probes did not surface anything notable."
+    rest = [f"· {f.headline}" for f in kept[1:]]
+    answer = "\n".join([headline, *rest]).strip()
+
+    confidence = score_answer(
+        attempts=1, validation=None,
+        schema_was_narrowed=schema_was_narrowed,
+        row_count=len(evidence_rows),
+        used_join=any(" JOIN " in p.sql.upper() for p in inv.probes if p.ok),
+        status="ok",
+    )
+    reasons = [f"read {len([p for p in inv.probes if p.ok])} probe queries together"]
+    if dropped:
+        reasons.append(f"{dropped} unverifiable finding(s) removed")
+
+    return AskResponse(
+        session_id=session_id, question=question, status="investigation",
+        answer=answer,
+        findings=kept,
+        probes=[
+            ProbeInfo(
+                goal=p.goal, sql=p.sql, columns=p.columns,
+                rows=p.rows, error=p.error,
+            )
+            for p in inv.probes
+        ],
+        chart=ChartSpec(type="none"),
+        attempts=[],
+        backend_used=inv.backend,
+        tokens_used=inv.tokens_used,
+        caveats=caveats,
+        assumptions=assumptions,
+        confidence=confidence.level,
+        confidence_score=confidence.score,
+        confidence_reasons=reasons,
+    )
