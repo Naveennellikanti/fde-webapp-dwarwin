@@ -47,6 +47,25 @@ class SettingsUpdate(BaseModel):
     sample_rows: Optional[int] = Field(default=None, ge=0, le=10)
 
 
+class CleaningOpInfo(BaseModel):
+    id: str
+    kind: str
+    table: str
+    column: Optional[str] = None
+    description: str
+    impact: str = ""
+
+
+class CleaningProposal(BaseModel):
+    table: str
+    ops: list[CleaningOpInfo] = Field(default_factory=list)
+    undo_available: bool = False
+
+
+class CleaningApplyRequest(BaseModel):
+    op_ids: list[str] = Field(default_factory=list)
+
+
 class SessionKeyUpdate(BaseModel):
     """Bring-your-own API key for a single session.
 

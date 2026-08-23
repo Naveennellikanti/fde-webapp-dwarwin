@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.ingestion import schema_profiler as schema_mod
 from app.intelligence.relationship_detector import detect_joins
+from app.intelligence import cleaner
+from app.analytics.query_validator import GuardrailError, validate_select
 from app.runtime.settings import effective_settings, update_overrides
 from app.runtime.session_store import SessionStore
 from app.intelligence.llm.base import LLMUnavailableError
@@ -24,6 +26,9 @@ from app.schemas import (
     AskResponse,
     ColumnInfo,
     JoinHint,
+    CleaningApplyRequest,
+    CleaningOpInfo,
+    CleaningProposal,
     SchemaResponse,
     SessionResponse,
     ColumnQualityInfo,
@@ -89,6 +94,13 @@ async def config() -> dict[str, object]:
         "available_backends": {
             "ollama": ollama_ok,
             "groq": bool(eff.groq_api_key),  # boolean only — the key is never exposed
+        },
+        # Server-enforced ceilings. Exposed read-only so the UI can show usage against
+        # them — deliberately NOT settable from the browser: raising your own cost cap
+        # on a shared instance defeats the guard, so cost governance stays server-side.
+        "limits": {
+            "max_messages_per_session": settings.max_messages_per_session,
+            "session_token_budget": settings.session_token_budget,
         },
         # Why a backend is unavailable, so the UI can say what to do rather than just
         # greying the option out. Never contains a secret.
@@ -236,6 +248,82 @@ async def drop_table(session_id: str, table: str) -> UploadResponse:
         t for t in session.history
         if not (t.sql and re.search(rf'\b"?{re.escape(table)}"?\b', t.sql, re.I))
     ]
+    return _schema_response(session_id)
+
+
+@app.get("/session/{session_id}/cleaning/{table}", response_model=CleaningProposal)
+async def cleaning_proposal(session_id: str, table: str) -> CleaningProposal:
+    """Cleaning fixes implied by the table's quality profile, each with a measured impact.
+
+    Read-only: proposes, changes nothing. The fixes are deterministic (derived from the
+    profile, not generated), so the same file always yields the same proposals.
+    """
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    if table not in session.engine.tables:
+        raise HTTPException(status_code=404, detail=f"No table named {table!r} in this session.")
+
+    quality = next((q for q in session.quality if q.table == table), None)
+    ops = cleaner.with_impacts(session.engine, table, cleaner.propose(session.engine, table, quality)) if quality else []
+    return CleaningProposal(
+        table=table,
+        ops=[
+            CleaningOpInfo(
+                id=o.id, kind=o.kind, table=o.table, column=o.column,
+                description=o.description, impact=o.impact,
+            )
+            for o in ops
+        ],
+        undo_available=session.engine.has_snapshot(table),
+    )
+
+
+@app.post("/session/{session_id}/cleaning/{table}/apply", response_model=UploadResponse)
+async def apply_cleaning(session_id: str, table: str, req: CleaningApplyRequest) -> UploadResponse:
+    """Apply approved fixes, after snapshotting the original so the change can be undone.
+
+    The transform is a single SELECT built from the chosen ops and run through the same
+    read-only guardrail as any query — a cleaning step gets no more trust than a question.
+    """
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    if table not in session.engine.tables:
+        raise HTTPException(status_code=404, detail=f"No table named {table!r} in this session.")
+
+    quality = next((q for q in session.quality if q.table == table), None)
+    available = {o.id: o for o in cleaner.propose(session.engine, table, quality)} if quality else {}
+    chosen = [available[i] for i in req.op_ids if i in available]
+    if not chosen:
+        raise HTTPException(status_code=400, detail="No applicable cleaning operations were selected.")
+
+    try:
+        transform = cleaner.build_transform_sql(session.engine, table, chosen)
+        validate_select(transform)  # same guardrail as a user query
+    except (ValueError, GuardrailError) as e:
+        raise HTTPException(status_code=400, detail=f"Could not build a safe transform: {e}") from e
+
+    session.engine.snapshot_table(table)
+    try:
+        session.engine.apply_transform(table, transform)
+    except Exception as e:  # noqa: BLE001 - restore rather than leave a half-applied table
+        session.engine.restore_snapshot(table)
+        raise HTTPException(status_code=400, detail=f"Cleaning failed and was rolled back: {e}") from e
+
+    session.quality = profile_session(session.engine)
+    logger.info("session=%s cleaned table=%s ops=%s", session_id, table, [o.id for o in chosen])
+    return _schema_response(session_id)
+
+
+@app.post("/session/{session_id}/cleaning/{table}/undo", response_model=UploadResponse)
+async def undo_cleaning(session_id: str, table: str) -> UploadResponse:
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    if not session.engine.restore_snapshot(table):
+        raise HTTPException(status_code=404, detail="Nothing to undo for this table.")
+    session.quality = profile_session(session.engine)
     return _schema_response(session_id)
 
 

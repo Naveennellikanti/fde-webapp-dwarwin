@@ -22,6 +22,7 @@ interface Props {
   onRemoveTable: (table: string) => void;
   /** Name of the table currently being removed, if any. */
   removingTable: string | null;
+  onClean?: (table: string) => void;
 }
 
 export default function Sidebar({
@@ -36,6 +37,7 @@ export default function Sidebar({
   onOpenSettings,
   onRemoveTable,
   removingTable,
+  onClean,
 }: Props) {
   return (
     <aside className="flex h-screen w-[320px] shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -154,7 +156,7 @@ export default function Sidebar({
 
       {/* Quality findings sit above the privacy note: both are things to know about the
           data before trusting an answer, and neither belongs in the scrolling list. */}
-      <QualityPanel quality={quality} />
+      <QualityPanel quality={quality} onClean={onClean} />
 
       {/* Footer */}
       <div className="border-t border-slate-200 px-5 py-3">

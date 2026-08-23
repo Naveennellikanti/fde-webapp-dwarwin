@@ -38,6 +38,12 @@ jobs:
       - name: Validation and ambiguity tests
         run: python tests/test_validation.py
 
+      - name: Investigation tests
+        run: python tests/test_investigator.py
+
+      - name: Cleaning tests
+        run: python tests/test_cleaning.py
+
       # The gate that matters: SQL accuracy over a labelled set, asserted against
       # values computed in pandas. A prompt change that breaks a join shows up here as
       # a number rather than as a surprise in a demo.

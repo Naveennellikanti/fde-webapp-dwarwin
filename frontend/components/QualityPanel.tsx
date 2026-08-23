@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, ChevronRight, Info, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Info, ShieldCheck, Sparkles } from 'lucide-react';
 
 import type { TableQualityInfo } from '@/lib/types';
 
@@ -13,8 +13,27 @@ import type { TableQualityInfo } from '@/lib/types';
  * whether an answer means what it appears to mean, so only those drive the summary
  * count; the rest are available on expand.
  */
-export default function QualityPanel({ quality }: { quality: TableQualityInfo[] }) {
+export default function QualityPanel({
+  quality,
+  onClean,
+}: {
+  quality: TableQualityInfo[];
+  /** Open the cleaning flow for a table. Omitted when no session is active. */
+  onClean?: (table: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+
+  // Tables with a fixable problem: an empty column, duplicate rows, or numbers stored
+  // as text. Only these get a Clean action — a "5% null" note is not something to
+  // auto-fix.
+  const fixableKinds = new Set(['numeric_stored_as_text', 'duplicate_rows', 'all_null']);
+  const fixableTables = Array.from(
+    new Set(
+      quality
+        .filter((q) => q.issues.some((i) => fixableKinds.has(i.kind)))
+        .map((q) => q.table)
+    )
+  );
 
   const warnings = quality.flatMap((q) =>
     q.issues.filter((i) => i.severity === 'warning').map((i) => ({ table: q.table, ...i }))
@@ -72,6 +91,19 @@ export default function QualityPanel({ quality }: { quality: TableQualityInfo[] 
               No missing values, duplicate rows or type problems worth flagging.
             </p>
           )}
+
+          {onClean &&
+            fixableTables.map((t) => (
+              <button
+                key={`clean-${t}`}
+                type="button"
+                onClick={() => onClean(t)}
+                className="flex w-full items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100"
+              >
+                <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
+                Review &amp; clean <span className="font-mono">{t}</span>
+              </button>
+            ))}
 
           {warnings.map((w, i) => (
             <p key={`w-${i}`} className="flex items-start gap-1.5 text-xs leading-relaxed text-amber-900">

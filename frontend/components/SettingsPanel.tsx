@@ -258,6 +258,33 @@ export default function SettingsPanel({
             </p>
           </section>
 
+          {/* ---- session limits (read-only) ---- */}
+          {config.limits && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Session limits
+              </h3>
+              <dl className="mt-2.5 space-y-1 rounded-lg border border-slate-200 px-3 py-2.5 text-xs">
+                <div className="flex justify-between">
+                  <dt className="text-slate-600">Questions per session</dt>
+                  <dd className="nums font-medium text-slate-800">
+                    {config.limits.max_messages_per_session.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-slate-600">Token budget</dt>
+                  <dd className="nums font-medium text-slate-800">
+                    {config.limits.session_token_budget.toLocaleString()}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-2 text-xs text-slate-500">
+                Set by the server, not adjustable here. Cost limits belong to the
+                administrator so one user cannot raise the cap for a shared instance.
+              </p>
+            </section>
+          )}
+
           {/* ---- data handling note ---- */}
           <section className="flex items-start gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
             <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />

@@ -10,6 +10,7 @@ import AnswerCard from '@/components/AnswerCard';
 import ThinkingCard from '@/components/ThinkingCard';
 import EmptyState from '@/components/EmptyState';
 import SettingsPanel from '@/components/SettingsPanel';
+import CleaningPanel from '@/components/CleaningPanel';
 
 function errMessage(e: unknown): string {
   if (e instanceof api.ApiError) return e.message;
@@ -31,6 +32,7 @@ export default function Page() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [removingTable, setRemovingTable] = useState<string | null>(null);
+  const [cleaningTable, setCleaningTable] = useState<string | null>(null);
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [asking, setAsking] = useState(false);
@@ -168,7 +170,21 @@ export default function Page() {
         onOpenSettings={() => setSettingsOpen(true)}
         onRemoveTable={handleRemoveTable}
         removingTable={removingTable}
+        onClean={sessionId ? setCleaningTable : undefined}
       />
+
+      {cleaningTable && sessionId && (
+        <CleaningPanel
+          sessionId={sessionId}
+          table={cleaningTable}
+          onApplied={(res) => {
+            setTables(res.tables);
+            setJoins(res.joins);
+            setQuality(res.quality ?? []);
+          }}
+          onClose={() => setCleaningTable(null)}
+        />
+      )}
 
       {settingsOpen && config && (
         <SettingsPanel

@@ -115,6 +115,55 @@ class DataEngine:
         self._taken.discard(table)
         return True
 
+    # ---- cleaning (snapshot / apply / restore) --------------------------------
+    # A cleaning fix must never mutate source data irreversibly. The original is copied
+    # to a shadow table before the transform runs; the shadow is created in DuckDB but
+    # NOT registered in `self.tables`, so it is invisible to the schema, the prompt,
+    # quality profiling and joins — it exists only to support undo.
+    def _snapshot_name(self, table: str) -> str:
+        return f"__snapshot__{table}"
+
+    def snapshot_table(self, table: str) -> None:
+        if table not in self.tables:
+            raise KeyError(table)
+        snap = self._snapshot_name(table)
+        self.con.execute(f'CREATE OR REPLACE TABLE "{snap}" AS SELECT * FROM "{table}"')
+
+    def has_snapshot(self, table: str) -> bool:
+        row = self.con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [self._snapshot_name(table)],
+        ).fetchone()
+        return bool(row and row[0])
+
+    def apply_transform(self, table: str, select_sql: str) -> None:
+        """Replace a table with the result of a (already validated) SELECT over it."""
+        if table not in self.tables:
+            raise KeyError(table)
+        self.con.execute(f'CREATE OR REPLACE TABLE "{table}" AS {select_sql}')
+        self._refresh_columns(table)
+
+    def restore_snapshot(self, table: str) -> bool:
+        """Undo the last cleaning apply. False if there is nothing to undo."""
+        if not self.has_snapshot(table):
+            return False
+        snap = self._snapshot_name(table)
+        self.con.execute(f'CREATE OR REPLACE TABLE "{table}" AS SELECT * FROM "{snap}"')
+        self.con.execute(f'DROP TABLE IF EXISTS "{snap}"')
+        self._refresh_columns(table)
+        return True
+
+    def _refresh_columns(self, table: str) -> None:
+        cols = self.con.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = ? ORDER BY ordinal_position",
+            [table],
+        ).fetchall()
+        row_count = self.con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+        lt = self.tables[table]
+        lt.columns = [(c[0], c[1]) for c in cols]
+        lt.row_count = int(row_count)
+
     # ---- querying -------------------------------------------------------------
     def sample_rows(self, table: str, n: int) -> list[dict[str, Any]]:
         if n <= 0:

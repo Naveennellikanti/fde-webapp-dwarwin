@@ -129,6 +129,21 @@ export interface AskResponse {
   probes: ProbeInfo[];
 }
 
+export interface CleaningOp {
+  id: string;
+  kind: string;
+  table: string;
+  column: string | null;
+  description: string;
+  impact: string;
+}
+
+export interface CleaningProposal {
+  table: string;
+  ops: CleaningOp[];
+  undo_available: boolean;
+}
+
 export type LlmBackend = 'auto' | 'ollama' | 'groq';
 
 export interface AppConfig {
@@ -143,6 +158,8 @@ export interface AppConfig {
   allowed_extensions: string[];
   /** Which backends could be selected. Booleans only — the API key is never exposed. */
   available_backends: { ollama: boolean; groq: boolean };
+  /** Server-enforced ceilings, shown read-only so users see them but cannot raise them. */
+  limits?: { max_messages_per_session: number; session_token_budget: number };
   /** Why a backend is unavailable, so the UI can say what to do about it. */
   backend_notes?: { ollama?: string; groq?: string };
 }

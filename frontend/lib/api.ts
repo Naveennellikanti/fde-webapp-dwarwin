@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  CleaningProposal,
   AskResponse,
   SchemaResponse,
   SessionKeyState,
@@ -158,6 +159,33 @@ export async function dropTable(
   }
   if (!res.ok) throw await toApiError(res);
   return (await res.json()) as UploadResponse;
+}
+
+export function getCleaningProposal(
+  sessionId: string,
+  table: string
+): Promise<CleaningProposal> {
+  return getJson<CleaningProposal>(
+    `/session/${encodeURIComponent(sessionId)}/cleaning/${encodeURIComponent(table)}`
+  );
+}
+
+export function applyCleaning(
+  sessionId: string,
+  table: string,
+  opIds: string[]
+): Promise<UploadResponse> {
+  return postJson<UploadResponse>(
+    `/session/${encodeURIComponent(sessionId)}/cleaning/${encodeURIComponent(table)}/apply`,
+    { op_ids: opIds }
+  );
+}
+
+export function undoCleaning(sessionId: string, table: string): Promise<UploadResponse> {
+  return postJson<UploadResponse>(
+    `/session/${encodeURIComponent(sessionId)}/cleaning/${encodeURIComponent(table)}/undo`,
+    {}
+  );
 }
 
 export function getSchema(sessionId: string): Promise<SchemaResponse> {
