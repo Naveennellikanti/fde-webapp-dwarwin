@@ -248,6 +248,21 @@ Step-by-step instructions, including the free-tier gotchas, are in
 **[DEPLOY.md](DEPLOY.md)**. [`render.yaml`](render.yaml) is a Render Blueprint, so the
 backend deploys from the dashboard without hand-entering settings.
 
+**One click each — backend first** (the frontend build needs the backend URL, and the
+backend's CORS then needs the frontend origin, so do them in this order):
+
+1. [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Naveennellikanti/fde-webapp-dwarwin)
+   — reads `render.yaml`, builds `backend/Dockerfile`. Copy the resulting
+   `https://<name>.onrender.com` URL.
+2. [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Naveennellikanti/fde-webapp-dwarwin&project-name=fde-data-qa&root-directory=frontend&env=NEXT_PUBLIC_API_URL&envDescription=Your%20Render%20backend%20URL%2C%20no%20trailing%20slash)
+   — root directory is preset to `frontend`; it prompts for `NEXT_PUBLIC_API_URL` (paste
+   the Render URL from step 1).
+3. Back in Render → **Environment** → set `CORS_ORIGINS` to your new Vercel origin, else
+   the browser blocks every API call.
+
+No credit card on either free tier. Full walkthrough and the free-tier caveats (cold
+starts, session TTL) are in **[DEPLOY.md](DEPLOY.md)**.
+
 | Piece | Where | Notes |
 |---|---|---|
 | Frontend | Vercel | Root Directory **must** be `frontend`; set `NEXT_PUBLIC_API_URL` to the backend URL (inlined at build time) |
