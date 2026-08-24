@@ -21,6 +21,31 @@ function errMessage(e: unknown): string {
 let turnSeq = 0;
 const nextTurnId = () => `turn-${++turnSeq}`;
 
+// Persist the backend session id across page reloads. Without this, every refresh POSTs a
+// brand-new session and the tables uploaded to the old one are orphaned — which looked like
+// "refresh deletes my files". Wrapped in try/catch for private-mode / SSR where storage throws.
+const SESSION_KEY = 'dataqa.session-id';
+function persistSession(id: string) {
+  try {
+    window.localStorage.setItem(SESSION_KEY, id);
+  } catch {
+    /* storage unavailable — degrade to in-memory, same as before */
+  }
+}
+function readStoredSession(): string | null {
+  try {
+    return window.localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+// True only when the backend has genuinely lost the session (expired, or a free-tier restart
+// dropped its in-memory state) — NOT for "no table named X", which is also a 404 but means the
+// session is alive and we must not throw it away.
+function sessionExpired(e: unknown): boolean {
+  return e instanceof api.ApiError && e.status === 404 && /session not found/i.test(e.message);
+}
+
 export default function Page() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -42,12 +67,52 @@ export default function Page() {
   const threadRef = useRef<HTMLDivElement>(null);
   const bootstrapped = useRef(false);
 
+  // Start a brand-new session and remember it. Also clears any stale table state.
+  const startFreshSession = useCallback(async (): Promise<string> => {
+    const s = await api.createSession();
+    setSessionId(s.session_id);
+    persistSession(s.session_id);
+    setTables([]);
+    setJoins([]);
+    setQuality([]);
+    setHasSessionKey(false);
+    return s.session_id;
+  }, []);
+
+  // Recover when the backend has lost the session mid-use: start over and tell the user
+  // plainly, rather than letting the action fail silently.
+  const handleSessionExpired = useCallback(async () => {
+    try {
+      await startFreshSession();
+      setUploadError(
+        'Your session expired (the free backend sleeps when idle and forgets uploads). Please re-upload your files.'
+      );
+    } catch (e) {
+      setSessionError(errMessage(e));
+    }
+  }, [startFreshSession]);
+
   // ---- Session bootstrap (once on mount, StrictMode-safe) -----------------
   const bootstrap = useCallback(async () => {
     setSessionError(null);
     try {
-      const s = await api.createSession();
-      setSessionId(s.session_id);
+      const stored = readStoredSession();
+      if (stored) {
+        // Reuse the stored session if the backend still has it — this is what makes a
+        // refresh keep the uploaded files instead of silently starting over.
+        try {
+          const schema = await api.getSchema(stored);
+          setSessionId(stored);
+          setTables(schema.tables);
+          setJoins(schema.joins);
+          setQuality(schema.quality ?? []);
+        } catch {
+          // Expired, or the backend restarted and lost it (sessions are in-memory).
+          await startFreshSession();
+        }
+      } else {
+        await startFreshSession();
+      }
     } catch (e) {
       setSessionError(errMessage(e));
     }
@@ -57,7 +122,7 @@ export default function Page() {
     } catch {
       /* leave the badge showing "connecting…" */
     }
-  }, []);
+  }, [startFreshSession]);
 
   useEffect(() => {
     if (bootstrapped.current) return;
@@ -86,12 +151,13 @@ export default function Page() {
         setJoins(res.joins);
         setQuality(res.quality ?? []);
       } catch (e) {
-        setUploadError(errMessage(e));
+        if (sessionExpired(e)) await handleSessionExpired();
+        else setUploadError(errMessage(e));
       } finally {
         setUploading(false);
       }
     },
-    [sessionId]
+    [sessionId, handleSessionExpired]
   );
 
   // ---- Remove one table ---------------------------------------------------
@@ -109,12 +175,13 @@ export default function Page() {
         setJoins(res.joins);
         setQuality(res.quality ?? []);
       } catch (e) {
-        setUploadError(errMessage(e));
+        if (sessionExpired(e)) await handleSessionExpired();
+        else setUploadError(errMessage(e));
       } finally {
         setRemovingTable(null);
       }
     },
-    [sessionId, removingTable]
+    [sessionId, removingTable, handleSessionExpired]
   );
 
   // ---- Ask ----------------------------------------------------------------
@@ -144,13 +211,16 @@ export default function Page() {
           }
         }
       } catch (e) {
-        const message = errMessage(e);
+        const message = sessionExpired(e)
+          ? 'Session expired — a new one was started. Please re-upload your files and ask again.'
+          : errMessage(e);
         setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, transportError: message } : t)));
+        if (sessionExpired(e)) await handleSessionExpired();
       } finally {
         setAsking(false);
       }
     },
-    [sessionId, asking, config]
+    [sessionId, asking, config, handleSessionExpired]
   );
 
   const hasData = tables.length > 0;
