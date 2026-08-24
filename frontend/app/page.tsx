@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, RotateCw, User } from 'lucide-react';
+import { AlertCircle, Plus, RotateCw, User } from 'lucide-react';
 import * as api from '@/lib/api';
 import type { AppConfig, JoinHint, TableInfo, TableQualityInfo, Turn } from '@/lib/types';
 import Sidebar from '@/components/Sidebar';
@@ -75,9 +75,21 @@ export default function Page() {
     setTables([]);
     setJoins([]);
     setQuality([]);
+    setTurns([]);
     setHasSessionKey(false);
     return s.session_id;
   }, []);
+
+  // Start a fresh conversation without losing the uploaded files.
+  const handleNewChat = useCallback(async () => {
+    if (!sessionId || asking) return;
+    try {
+      await api.clearConversation(sessionId);
+    } catch {
+      /* clearing the visible thread is what the user asked for even if the call fails */
+    }
+    setTurns([]);
+  }, [sessionId, asking]);
 
   // Recover when the backend has lost the session mid-use: start over and tell the user
   // plainly, rather than letting the action fail silently.
@@ -106,6 +118,22 @@ export default function Page() {
           setTables(schema.tables);
           setJoins(schema.joins);
           setQuality(schema.quality ?? []);
+          // Restore the chat thread too (stored server-side), so a refresh brings back
+          // the conversation, not just the files. A failure here is non-fatal — the
+          // tables are already restored and the user can keep asking.
+          try {
+            const conv = await api.getConversation(stored);
+            setTurns(
+              conv.turns.map((t) => ({
+                id: nextTurnId(),
+                question: t.question,
+                response: t.response,
+                transportError: null,
+              }))
+            );
+          } catch {
+            /* conversation restore is a nicety, not a blocker */
+          }
         } catch {
           // Expired, or the backend restarted and lost it (sessions are in-memory).
           await startFreshSession();
@@ -284,6 +312,24 @@ export default function Page() {
             >
               <RotateCw className="h-3 w-3" />
               Retry
+            </button>
+          </div>
+        )}
+
+        {turns.length > 0 && (
+          <div className="flex items-center justify-between border-b border-slate-200 px-8 py-2">
+            <span className="text-xs text-slate-400">
+              {turns.length} message{turns.length === 1 ? '' : 's'} · restored on refresh
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleNewChat()}
+              disabled={asking}
+              title="Clear this conversation and start fresh (keeps your uploaded files)"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New chat
             </button>
           </div>
         )}

@@ -30,6 +30,12 @@ class Session:
     created_at: float
     last_seen: float
     history: list[Turn] = field(default_factory=list)
+    # Full conversation for restoring the UI thread after a browser refresh. Distinct from
+    # `history` (which keeps only question+SQL for model context): this holds each
+    # question paired with the complete answer payload the frontend rendered, stored as a
+    # plain dict so this module stays decoupled from the response schema. In memory only,
+    # gone on TTL/restart like everything else in the session.
+    conversation: list[dict] = field(default_factory=list)
     tokens_used: int = 0
     message_count: int = 0
     # Profiled once per upload and reused for every question, like the schema and the

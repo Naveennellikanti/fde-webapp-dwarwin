@@ -105,6 +105,11 @@ class Settings(BaseSettings):
 
     # ---- Uploads ---------------------------------------------------------------
     max_upload_mb: int = 50
+    # Hard ceiling on how many tables one session may hold, enforced server-side so it
+    # cannot be bypassed from the browser. Each session's tables live in the backend's
+    # RAM, so on a shared free instance an unbounded upload count would exhaust memory
+    # for everyone. Excel sheets count individually toward this.
+    max_tables_per_session: int = 12
     session_ttl_minutes: int = 120
 
     # ---- CORS ------------------------------------------------------------------

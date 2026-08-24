@@ -137,6 +137,17 @@ class FindingInfo(BaseModel):
     evidence: Optional[int] = None
 
 
+class ConversationTurn(BaseModel):
+    """One stored exchange, for rebuilding the chat thread after a refresh."""
+    question: str
+    response: "AskResponse"
+
+
+class ConversationResponse(BaseModel):
+    session_id: str
+    turns: list[ConversationTurn] = Field(default_factory=list)
+
+
 class AskResponse(BaseModel):
     session_id: str
     question: str
@@ -175,3 +186,8 @@ class AskResponse(BaseModel):
     # came from so the reader can verify rather than trust.
     findings: list[FindingInfo] = Field(default_factory=list)
     probes: list[ProbeInfo] = Field(default_factory=list)
+
+
+# ConversationTurn references AskResponse by name (forward ref); resolve it now that the
+# concrete class exists.
+ConversationTurn.model_rebuild()

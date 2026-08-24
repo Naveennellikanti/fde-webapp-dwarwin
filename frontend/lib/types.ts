@@ -162,7 +162,12 @@ export interface AppConfig {
   /** Which backends could be selected. Booleans only — the API key is never exposed. */
   available_backends: { ollama: boolean; groq: boolean };
   /** Server-enforced ceilings, shown read-only so users see them but cannot raise them. */
-  limits?: { max_messages_per_session: number; session_token_budget: number };
+  limits?: {
+    max_messages_per_session: number;
+    session_token_budget: number;
+    max_tables_per_session?: number;
+    max_upload_mb?: number;
+  };
   /** Why a backend is unavailable, so the UI can say what to do about it. */
   backend_notes?: { ollama?: string; groq?: string };
 }
@@ -183,6 +188,12 @@ export interface SessionKeyState {
   has_key: boolean;
   tokens_used: number;
   verified?: boolean;
+}
+
+/** Backend-stored chat thread, fetched on load so a refresh restores the conversation. */
+export interface ConversationResponse {
+  session_id: string;
+  turns: { question: string; response: AskResponse }[];
 }
 
 /** One entry in the conversation thread. */

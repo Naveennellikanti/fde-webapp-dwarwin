@@ -29,6 +29,8 @@ from app.schemas import (
     CleaningApplyRequest,
     CleaningOpInfo,
     CleaningProposal,
+    ConversationResponse,
+    ConversationTurn,
     SchemaResponse,
     SessionResponse,
     ColumnQualityInfo,
@@ -101,6 +103,8 @@ async def config() -> dict[str, object]:
         "limits": {
             "max_messages_per_session": settings.max_messages_per_session,
             "session_token_budget": settings.session_token_budget,
+            "max_tables_per_session": settings.max_tables_per_session,
+            "max_upload_mb": eff.max_upload_mb,
         },
         # Why a backend is unavailable, so the UI can say what to do rather than just
         # greying the option out. Never contains a secret.
@@ -196,6 +200,21 @@ async def upload(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
 
+    # Hard cap on table count, enforced here so it cannot be bypassed from the browser.
+    # Fast upfront gate (each file is at least one table); a post-load check below also
+    # catches an Excel workbook whose sheets would push the session over.
+    cap = settings.max_tables_per_session
+    existing = len(session.engine.tables)
+    if existing + len(files) > cap:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"This session allows up to {cap} tables. It already has {existing}, and "
+                f"you tried to add {len(files)}. Remove a table first."
+            ),
+        )
+    before = set(session.engine.tables)
+
     max_bytes = settings.max_upload_mb * 1024 * 1024
     for f in files:
         name = f.filename or "upload"
@@ -219,6 +238,20 @@ async def upload(
                 session.engine.add_csv(name, data)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"Could not parse {name}: {e}") from e
+
+    # Post-load safety: an Excel workbook can add several tables from one file, so a
+    # single upload can still overshoot the cap. Roll back exactly the tables this upload
+    # added, leaving the session as it was, and report it.
+    if len(session.engine.tables) > cap:
+        for t in set(session.engine.tables) - before:
+            session.engine.drop_table(t)
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"That upload would put the session over the {cap}-table limit "
+                f"(an Excel file can add one table per sheet). It was not applied."
+            ),
+        )
 
     # Profile once, here, rather than per question.
     session.quality = profile_session(session.engine)
@@ -327,6 +360,36 @@ async def undo_cleaning(session_id: str, table: str) -> UploadResponse:
     return _schema_response(session_id)
 
 
+@app.get("/session/{session_id}/conversation", response_model=ConversationResponse)
+async def get_conversation(session_id: str) -> ConversationResponse:
+    """The full chat thread, so a browser refresh restores the conversation, not just the
+    uploaded tables. Backend-side so it survives across devices for as long as the
+    session lives."""
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    return ConversationResponse(
+        session_id=session_id,
+        turns=[
+            ConversationTurn(question=t["question"], response=AskResponse(**t["response"]))
+            for t in session.conversation
+        ],
+    )
+
+
+@app.delete("/session/{session_id}/conversation")
+async def clear_conversation(session_id: str) -> dict[str, object]:
+    """Start a fresh conversation without losing the uploaded files. Clears both the
+    visible thread and the model-context history; the cost budgets are deliberately NOT
+    reset, since they guard spend across the whole session."""
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired.")
+    session.conversation.clear()
+    session.history.clear()
+    return {"session_id": session_id, "cleared": True}
+
+
 @app.get("/schema/{session_id}", response_model=SchemaResponse)
 async def get_schema(session_id: str) -> SchemaResponse:
     if not store.get(session_id):
@@ -386,6 +449,11 @@ async def ask(req: AskRequest) -> AskResponse:
 
     session.tokens_used += result.tokens_used
     session.history.append(Turn(question=req.question.strip(), sql=result.sql))
+    # Full turn, kept so the chat thread can be rebuilt after a browser refresh. Stored
+    # as a plain dict (the serialised response), not the model object.
+    session.conversation.append(
+        {"question": req.question.strip(), "response": result.model_dump()}
+    )
     # Audit trail: question -> SQL is logged for traceability.
     logger.info("session=%s q=%r sql=%r status=%s", req.session_id, req.question, result.sql, result.status)
     return result

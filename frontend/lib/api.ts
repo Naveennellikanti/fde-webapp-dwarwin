@@ -2,6 +2,7 @@ import type {
   AppConfig,
   CleaningProposal,
   AskResponse,
+  ConversationResponse,
   SchemaResponse,
   SessionKeyState,
   SessionResponse,
@@ -190,6 +191,26 @@ export function undoCleaning(sessionId: string, table: string): Promise<UploadRe
 
 export function getSchema(sessionId: string): Promise<SchemaResponse> {
   return getJson<SchemaResponse>(`/schema/${encodeURIComponent(sessionId)}`);
+}
+
+/** The stored chat thread, so a refresh restores the conversation, not just the tables. */
+export function getConversation(sessionId: string): Promise<ConversationResponse> {
+  return getJson<ConversationResponse>(
+    `/session/${encodeURIComponent(sessionId)}/conversation`
+  );
+}
+
+/** Start a fresh conversation (keeps uploaded files). */
+export async function clearConversation(sessionId: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/session/${encodeURIComponent(sessionId)}/conversation`, {
+      method: 'DELETE',
+    });
+  } catch (e) {
+    throw networkError(e);
+  }
+  if (!res.ok) throw await toApiError(res);
 }
 
 export function ask(sessionId: string, question: string): Promise<AskResponse> {

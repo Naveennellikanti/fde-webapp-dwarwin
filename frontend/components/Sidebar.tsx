@@ -39,6 +39,8 @@ export default function Sidebar({
   removingTable,
   onClean,
 }: Props) {
+  const maxTables = config?.limits?.max_tables_per_session ?? null;
+  const atTableCap = maxTables != null && tables.length >= maxTables;
   return (
     <aside className="flex h-screen w-[320px] shrink-0 flex-col border-r border-slate-200 bg-white">
       {/* Header */}
@@ -97,10 +99,17 @@ export default function Sidebar({
           <UploadZone
             onFiles={onFiles}
             uploading={uploading}
-            disabled={uploadDisabled}
+            disabled={uploadDisabled || atTableCap}
             error={uploadError}
             maxUploadMb={config?.max_upload_mb ?? null}
           />
+          {maxTables != null && (
+            <p className={`mt-1.5 text-[11px] ${atTableCap ? 'text-amber-600' : 'text-slate-400'}`}>
+              {atTableCap
+                ? `Table limit reached (${tables.length}/${maxTables}). Remove one to add more.`
+                : `${tables.length} of ${maxTables} tables used`}
+            </p>
+          )}
         </section>
 
         {tables.length > 0 && (
